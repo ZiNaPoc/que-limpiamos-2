@@ -1,0 +1,39 @@
+name: que_limpiamos_trabajadores
+description: "¿Qué limpiamos? — Aplicación móvil para trabajadores (solo frontend, datos simulados)."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  # Dart 3.5 = Flutter 3.24 o superior.
+  sdk: '>=3.5.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Persistencia local sencilla (sesión, perfil, solicitudes). Compatible con Android 8.
+  shared_preferences: ^2.3.2
+  # Selección de fotos (INE, foto de perfil, fotos en el chat). Compatible con Android 8.
+  image_picker: ^1.1.2
+  http: ^1.6.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/images/spaces/
+
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Poppins-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Poppins-Bold.ttf
+          weight: 700

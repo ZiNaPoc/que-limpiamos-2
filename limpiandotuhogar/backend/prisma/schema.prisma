@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model estrellas {
+  id           Int           @id @default(autoincrement())
+  name         String        @db.VarChar(255)
+  phone_number String        @unique(map: "phone_number") @db.VarChar(15)
+  email        String        @unique(map: "email") @db.VarChar(255)
+  password     String        @db.VarChar(255)
+  rol          estrellas_rol @default(CLIENTE)
+  horario      String?
+  hoyo_negro   hoyo_negro[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model galaxias {
+  id           Int           @id @default(autoincrement())
+  tipo         galaxias_tipo @default(CASA)
+  habitaciones Int           @db.TinyInt
+  banos        Int           @db.TinyInt
+  medios_banos Int           @db.TinyInt
+  pisos        Int           @db.TinyInt
+  hoyo_negro   hoyo_negro[]
+}
+
+model hoyo_negro {
+  id            Int       @id @default(autoincrement())
+  cliente_id    Int
+  fecha         DateTime? @db.DateTime(0)
+  seleccion     Json
+  total         Decimal   @db.Decimal(10, 2)
+  id_galaxias   Int
+  estado        String    @default("DISPONIBLE") @db.VarChar(20)
+  trabajador_id Int?
+  galaxias      galaxias  @relation(fields: [id_galaxias], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hoyo_negro_galaxias")
+  estrellas     estrellas @relation(fields: [cliente_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reservas_cliente")
+
+  @@index([cliente_id], map: "fk_reservas_cliente")
+  @@index([id_galaxias], map: "fk_hoyo_negro_galaxias")
+}
+
+enum galaxias_tipo {
+  CASA
+  OFICINA
+  DEPARTAMENTO
+}
+
+enum estrellas_rol {
+  CLIENTE
+  TRABAJADOR
+}
