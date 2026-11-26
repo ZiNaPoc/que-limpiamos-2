@@ -177,6 +177,8 @@ export type AperturaDelPanel = {
   idDeSolicitud?: string | null;
   idDelCliente?: string | null;
   filtroDeVerificacion?: FiltroDeVerificacion;
+  // Abrir Solicitudes filtradas por «requieren atención».
+  soloAtencion?: boolean;
 };
 
 // Pantallas del panel de administración (cada una es un botón del menú lateral; "perfil" se abre desde la foto).

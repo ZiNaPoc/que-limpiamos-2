@@ -36,7 +36,7 @@ function filtrosDesdeApertura(f?: FiltrosDeSolicitudes): FiltrosDeSupervision {
 export function SolicitudesPage({ apertura, onNavegar }: SolicitudesPageProps) {
   const { tiene, cargando: cargandoPermisos } = usePermisos();
   const ahora = useAhora(10_000);
-  const [filtros, setFiltros] = useState<FiltrosDeSupervision>(() => filtrosDesdeApertura(apertura.filtrosDeSolicitudes));
+  const [filtros, setFiltros] = useState<FiltrosDeSupervision>(() => ({ ...filtrosDesdeApertura(apertura.filtrosDeSolicitudes), atencion: apertura.soloAtencion ?? false }));
   const [datos, setDatos] = useState<ListadoDeSupervision | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);

@@ -5,6 +5,7 @@ import { exigirOrigenPermitido } from "./auth/origen";
 import { adminAuthRouter } from "./auth/routes";
 import { moderacionRouter } from "./moderacion/routes";
 import { permisosRouter } from "./permisos/routes";
+import { plataformaRouter } from "./plataforma/routes";
 import { solicitudesAdminRouter } from "./solicitudes/routes";
 
 /**
@@ -22,3 +23,5 @@ adminRouter.use("/permisos", permisosRouter);
 adminRouter.use(moderacionRouter);
 // Doc 25: supervisión de solicitudes (SUPERVISAR_SOLICITUDES) y resolución del servicio (incidencias).
 adminRouter.use(solicitudesAdminRouter);
+// Doc 27: resumen, clientes y trabajadores reales, y administración del catálogo.
+adminRouter.use(plataformaRouter);
