@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { useAhora } from "../hooks/useAhora";
 import { useCatalogo } from "../data/CatalogoContext";
-import { buscarCliente, useClientes } from "../data/ClientesContext";
 import { useSolicitudes } from "../hooks/useSolicitudes";
+import { useResenas } from "../data/ResenasContext";
+import { calcularReputacionDelTrabajador, ultimasResenasDelTrabajador } from "../data/resenas";
+import type { EstadoDeLasResenas } from "../data/resenas";
 import { useTrabajadores, validarTrabajador, type ErroresDeTrabajador } from "../data/TrabajadoresContext";
 import { buscarServiciosActivosDelTrabajador } from "../utils/reglasDeSolicitudes";
 import { DOCUMENTOS_REQUERIDOS, HORARIO_PREDETERMINADO } from "../data/trabajadores";
@@ -11,10 +13,10 @@ import { describirTiposPermitidos, formatearTamanoDeArchivo, TAMANO_MAXIMO_DE_AR
 
 import { 
   calcularEstadoDelTrabajador, 
-  //calcularReputacion,  por lo mismo de que hace falta lo del fuckin coso este que se me olvido xd
   contarServiciosDeHoy, 
   describirReputacion, 
-  obtenerServiciosActivos, 
+  obtenerServiciosActivos,
+  type Reputacion, 
   type EstadoDelTrabajador 
 } from "../utils/consultasDeTrabajadores";
 
@@ -34,6 +36,20 @@ type VistaDeTrabajadores = { tipo: "lista" } | { tipo: "nuevo" } | { tipo: "edit
 // Convierte los ids de especialidades (C-01...) en los nombres de los servicios del catálogo.
 function nombresDeEspecialidades(trabajador: Trabajador, servicios: ServicioDelCatalogo[]): string[] {
   return trabajador.especialidades.map((idDelServicio) => servicios.find((servicio) => servicio.id === idDelServicio)?.nombre ?? idDelServicio);
+}
+
+// Texto de la reputación en la ficha. Si las reseñas no están conectadas (Fase 3a), lo dice en vez de "Sin calificaciones".
+function textoDeReputacion(estado: EstadoDeLasResenas, reputacion: Reputacion): string {
+  if (estado.tipo === "pendiente-de-backend") {
+    return "Pendiente: reseñas sin conectar al backend";
+  }
+  if (estado.tipo === "sin-permiso") {
+    return "Requiere el permiso MODERAR_CONTENIDO";
+  }
+  if (estado.tipo !== "listo") {
+    return "No disponible";
+  }
+  return describirReputacion(reputacion);
 }
 
 // Renglón de la ficha con ícono, etiqueta y valor.
@@ -69,20 +85,16 @@ function VentanaDeDetalleDelTrabajador({ trabajador, onCerrar, onEditar, onNaveg
   // Motivo por el que no se pudo cambiar el estado (se muestra en la ficha).
   const [errorDelCambioDeEstado, setErrorDelCambioDeEstado] = useState("");
   const { servicios } = useCatalogo();
-  const { clientes } = useClientes();
   const ahora = useAhora();
   const claveDeHoy = obtenerClaveDeFecha(ahora);
   // Datos que se calculan para la ficha: reputación, estado de ahora, servicios por atender y las 3 calificaciones más recientes.
-  //const reputacion = calcularReputacion(solicitudes:, trabajador.id);
+  const { estado: estadoDeResenas } = useResenas();
+  const resenasCargadas = estadoDeResenas.tipo === "listo" ? estadoDeResenas.resenas : [];
+  const reputacion = calcularReputacionDelTrabajador(resenasCargadas, trabajador.id);
   const estado = calcularEstadoDelTrabajador(solicitudes, trabajador, ahora);
   const serviciosActivos = obtenerServiciosActivos(solicitudes, trabajador.id);
 
-  /*
-  const calificaciones = solicitudes
-    .filter((solicitud) => solicitud.idTrabajador === trabajador.id && solicitud.calificacion)
-    //.sort((a, b) => new Date(b.calificacion!.fecha).getTime() - new Date(a.calificacion!.fecha).getTime())
-    .slice(0, 3);
-*/
+  const calificaciones = ultimasResenasDelTrabajador(resenasCargadas, trabajador.id, 3);
 
   const estaActivo = trabajador.estado === "Activo";
   // Servicios por atender que impiden desactivarlo (vacío si ya está inactivo).
@@ -166,7 +178,7 @@ function VentanaDeDetalleDelTrabajador({ trabajador, onCerrar, onEditar, onNaveg
               ))}
             </span>
           </DatoDelTrabajador>
-          <DatoDelTrabajador icono="estrella" etiqueta="Reputación">{describirReputacion(reputacion)}</DatoDelTrabajador>
+          <DatoDelTrabajador icono="estrella" etiqueta="Reputación">{textoDeReputacion(estadoDeResenas, reputacion)}</DatoDelTrabajador>
         </dl>
 
         <div className="space-y-4 md:col-span-2">
@@ -217,12 +229,12 @@ function VentanaDeDetalleDelTrabajador({ trabajador, onCerrar, onEditar, onNaveg
             Últimas calificaciones
           </h3>
           <ul className="mt-3 grid gap-2 sm:grid-cols-3">
-            {calificaciones.map((solicitud) => (
-              <li key={solicitud.id} className="rounded-2xl bg-beige p-4 text-sm">
-                <Puntuacion valor={solicitud.calificacion!.puntuacion} />
-                {solicitud.calificacion!.comentario && <p className="mt-2 text-storm">“{solicitud.calificacion!.comentario}”</p>}
+            {calificaciones.map((resena) => (
+              <li key={resena.id} className="rounded-2xl bg-beige p-4 text-sm">
+                <Puntuacion valor={resena.puntuacion} />
+                {resena.comentario && <p className="mt-2 text-storm">“{resena.comentario}”</p>}
                 <p className="mt-2 text-xs text-slate">
-                  {buscarCliente(clientes, solicitud.idDelCliente)?.nombre ?? solicitud.idDelCliente} · {formatearFechaNumerica(solicitud.calificacion!.fecha)}
+                  {resena.autor.nombre} · {formatearFechaNumerica(resena.fechaCreacion)}
                 </p>
               </li>
             ))}
@@ -248,6 +260,8 @@ type ListaDeTrabajadoresProps = {
 function ListaDeTrabajadores({ onAnadir, onEditar, onNavegar, onResultado }: ListaDeTrabajadoresProps) {
   const { trabajadores } = useTrabajadores();
   const { solicitudes } = useSolicitudes();
+  const { estado: estadoDeResenas } = useResenas();
+  const resenasCargadas = estadoDeResenas.tipo === "listo" ? estadoDeResenas.resenas : [];
   const ahora = useAhora();
   const [busqueda, setBusqueda] = useState("");
   const [filtroDeEstado, setFiltroDeEstado] = useState<"Todos" | EstadoDelTrabajador>("Todos");
@@ -258,7 +272,7 @@ function ListaDeTrabajadores({ onAnadir, onEditar, onNavegar, onResultado }: Lis
   const filas = trabajadores.map((trabajador) => ({
     trabajador,
     estado: calcularEstadoDelTrabajador(solicitudes, trabajador, ahora),
-    reputacion: calcularReputacion(solicitudes, trabajador.id),
+    reputacion: calcularReputacionDelTrabajador(resenasCargadas, trabajador.id),
     serviciosDeHoy: contarServiciosDeHoy(solicitudes, trabajador.id, ahora),
   }));
   // Filas que cumplen el filtro de estado y la búsqueda (por id, nombre o teléfono).
@@ -324,7 +338,7 @@ function ListaDeTrabajadores({ onAnadir, onEditar, onNavegar, onResultado }: Lis
                     <span className="font-normal text-slate">({reputacion.cantidad})</span>
                   </span>
                 )}
-                {reputacion.promedio === null && <span className="text-slate">Sin calificaciones</span>}
+                {reputacion.promedio === null && <span className="text-slate">{estadoDeResenas.tipo === "listo" ? "Sin calificaciones" : estadoDeResenas.tipo === "sin-permiso" ? "Requiere permiso de moderación" : "Reseñas no disponibles"}</span>}
               </span>
               <InsigniaDeEstado estado={estado} />
               <Icono nombre="chevronDerecho" className="hidden text-slate lg:block" />

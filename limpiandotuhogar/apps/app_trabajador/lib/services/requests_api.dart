@@ -1,37 +1,24 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
 import 'api_client.dart';
+import 'resenas_reportes_api.dart';
 
-/// Datos de la casa/oficina (tabla `galaxias`).
-class HouseInput {
-  const HouseInput({
-    this.tipo = 'CASA', // CASA | OFICINA | DEPARTAMENTO
-    required this.habitaciones,
-    required this.banos,
-    required this.mediosBanos,
-    required this.pisos,
-  });
+// ════════════════════════════════════════════════════════════════════
+// Solicitudes REALES del trabajador — ciclo sin dinero (docs/backend/25 v2).
+//   GET  /api/trabajador/solicitudes/disponibles   invitaciones pendientes + bolsa en la que es elegible
+//   GET  /api/trabajador/solicitudes               asignadas e invitaciones vigentes
+//   POST /api/trabajador/solicitudes/:id/aceptar · /rechazar · /iniciar · /cancelar
+//   POST /api/trabajador/solicitudes/:id/terminar  multipart, campo "fotos" (1 a 5)
+// Sustituye a las rutas obsoletas /galaxias y /hoyo-negro (no existen en el backend, D12).
+// Sin negociación: el precio lo calcula QueLimpiamos y el trabajador solo acepta o rechaza.
+// ════════════════════════════════════════════════════════════════════
 
-  final String tipo;
-  final int habitaciones;
-  final int banos;
-  final int mediosBanos;
-  final int pisos;
-
-  Map<String, dynamic> toJson() => {
-        'tipo': tipo,
-        'habitaciones': habitaciones,
-        'banos': banos,
-        'medios_banos': mediosBanos,
-        'pisos': pisos,
-      };
-}
-
+/// Datos del inmueble (copia guardada en la solicitud).
 class RemoteHouse {
   const RemoteHouse({
-    required this.id,
     required this.tipo,
     required this.habitaciones,
     required this.banos,
@@ -39,210 +26,158 @@ class RemoteHouse {
     required this.pisos,
   });
 
-  final int id;
   final String tipo;
   final int habitaciones;
   final int banos;
   final int mediosBanos;
   final int pisos;
 
-  factory RemoteHouse.fromJson(Map<String, dynamic> json) => RemoteHouse(
-        id: json['id'] as int,
-        tipo: json['tipo'] as String,
-        habitaciones: json['habitaciones'] as int,
-        banos: json['banos'] as int,
-        mediosBanos: json['medios_banos'] as int,
-        pisos: json['pisos'] as int,
+  factory RemoteHouse.fromJson(Map<String, dynamic> j) => RemoteHouse(
+        tipo: (j['tipo'] as String?) ?? 'CASA',
+        habitaciones: (j['habitaciones'] as int?) ?? 0,
+        banos: (j['banos'] as int?) ?? 0,
+        mediosBanos: (j['mediosBanos'] as int?) ?? 0,
+        pisos: (j['pisos'] as int?) ?? 1,
       );
 }
 
-/// Una solicitud tal como la guarda el backend (tabla `hoyo_negro`).
-///
-/// El campo `seleccion` (JSON libre) lo llena la app del cliente con estas
-/// llaves; todas son opcionales y los getters ya traen valores por defecto.
-/// Los getters son tolerantes: un texto puede llegar como String o como
-/// lista (se unen con coma), y los números pueden llegar como num o String.
-///
-///   tipoLimpieza, descripcion, servicioExtra, precioExtra, detallesExtra,
-///   condiciones (lista), areas (lista), metros2, notas, direccion, zona,
-///   duracionHoras, fotos (lista de URLs)
+/// Una solicitud real tal como la ve el trabajador (vista del servidor).
 class RemoteRequest {
   const RemoteRequest({
     required this.id,
-    required this.clienteId,
-    required this.clienteNombre,
-    this.clienteTelefono,
-    required this.fecha,
-    required this.total,
     required this.estado,
-    this.trabajadorId,
+    required this.relacion,
+    required this.servicio,
+    required this.fecha,
+    required this.duracionMin,
+    required this.total,
+    required this.clienteNombre,
     required this.casa,
-    required this.seleccion,
+    required this.areas,
+    required this.extras,
+    required this.notas,
+    required this.direccion,
+    required this.trabajadorTerminoEn,
+    required this.puedeIniciar,
+    required this.motivoNoIniciar,
+    required this.puedeCancelar,
+    required this.motivoNoCancelar,
   });
 
   final int id;
-  final int clienteId;
-  final String clienteNombre;
-  final String? clienteTelefono;
+
+  /// Estado del servidor: PENDIENTE, CONFIRMADO, EN_PROCESO, REALIZADO, CANCELADO…
+  final String estado;
+
+  /// INVITADO, BOLSA o ASIGNADO.
+  final String relacion;
+  final String servicio;
   final DateTime fecha;
+  final int duracionMin;
+
+  /// Lo que pagará el cliente en efectivo (calculado por el servidor).
   final double total;
-  final String estado; // 'DISPONIBLE' | 'ACEPTADA'
-  final int? trabajadorId;
+  final String clienteNombre;
   final RemoteHouse casa;
-  final Map<String, dynamic> seleccion;
+  final List<String> areas;
+  final List<({String nombre, double precio})> extras;
+  final String notas;
 
-  bool get disponible => estado == 'DISPONIBLE';
+  /// Solo si está asignado (antes de aceptar no se ve la dirección exacta).
+  final String? direccion;
+  final DateTime? trabajadorTerminoEn;
+  final bool puedeIniciar;
+  final String? motivoNoIniciar;
+  final bool puedeCancelar;
+  final String? motivoNoCancelar;
 
-  factory RemoteRequest.fromJson(Map<String, dynamic> json) {
-    final cliente = json['estrellas'] as Map<String, dynamic>?;
-    final rawSeleccion = json['seleccion'];
-    final casa = json['galaxias'];
-    if (casa is! Map<String, dynamic>) {
-      throw FormatException(
-          'La solicitud ${json['id']} llegó sin "galaxias" (revisa el include del backend). Llaves recibidas: ${json.keys.toList()}');
-    }
+  bool get disponible => relacion != 'ASIGNADO' && estado == 'PENDIENTE';
+
+  factory RemoteRequest.fromJson(Map<String, dynamic> j) {
+    final acciones = (j['acciones'] as Map<String, dynamic>?) ?? const {};
+    final marcas = (j['marcas'] as Map<String, dynamic>?) ?? const {};
     return RemoteRequest(
-      id: json['id'] as int,
-      clienteId: json['cliente_id'] as int,
-      clienteNombre: (cliente?['name'] as String?) ?? 'Cliente',
-      clienteTelefono: cliente?['phone_number'] as String?,
-      fecha: json['fecha'] == null
-          ? DateTime.now()
-          : DateTime.parse(json['fecha'] as String).toLocal(),
-      total: double.parse(json['total'].toString()), // Decimal llega como texto
-      estado: json['estado'] as String,
-      trabajadorId: json['trabajador_id'] as int?,
-      casa: RemoteHouse.fromJson(casa),
-      seleccion: rawSeleccion is Map<String, dynamic> ? rawSeleccion : const {},
+      id: j['id'] as int,
+      estado: j['estado'] as String,
+      relacion: (j['relacion'] as String?) ?? 'BOLSA',
+      servicio: (j['servicio'] as String?) ?? 'Limpieza',
+      fecha: DateTime.parse(j['fechaProgramada'] as String).toLocal(),
+      duracionMin: (j['duracionMin'] as int?) ?? 180,
+      total: ((j['precio'] as num?) ?? 0).toDouble(),
+      clienteNombre: ((j['cliente'] as Map<String, dynamic>?)?['nombre'] as String?) ?? 'Cliente',
+      casa: RemoteHouse.fromJson((j['inmueble'] as Map<String, dynamic>?) ?? const {}),
+      areas: [for (final a in (j['areas'] as List?) ?? const []) a.toString()],
+      extras: [
+        for (final e in (j['extras'] as List?) ?? const [])
+          (nombre: (e as Map<String, dynamic>)['nombre'] as String, precio: ((e['precio'] as num?) ?? 0).toDouble()),
+      ],
+      notas: (j['notas'] as String?) ?? '',
+      direccion: j['direccion'] as String?,
+      trabajadorTerminoEn: marcas['trabajadorTerminoEn'] == null ? null : DateTime.parse(marcas['trabajadorTerminoEn'] as String).toLocal(),
+      puedeIniciar: (acciones['puedeIniciar'] as bool?) ?? false,
+      motivoNoIniciar: acciones['motivoNoIniciar'] as String?,
+      puedeCancelar: (acciones['puedeCancelar'] as bool?) ?? false,
+      motivoNoCancelar: acciones['motivoNoCancelar'] as String?,
     );
   }
-
-  // ── Getters sobre `seleccion` (tolerantes al tipo) ────────────────
-  String _text(String key, [String fallback = '']) {
-    final v = seleccion[key];
-    if (v == null) return fallback;
-    if (v is List) {
-      final s = v.map((e) => e.toString()).join(', ');
-      return s.isEmpty ? fallback : s;
-    }
-    final s = v.toString();
-    return s.isEmpty ? fallback : s;
-  }
-
-  int _int(String key, int fallback) {
-    final v = seleccion[key];
-    if (v is num) return v.toInt();
-    return int.tryParse('${v ?? ''}') ?? fallback;
-  }
-
-  double _double(String key, double fallback) {
-    final v = seleccion[key];
-    if (v is num) return v.toDouble();
-    return double.tryParse('${v ?? ''}') ?? fallback;
-  }
-
-  List<String> _strings(String key) {
-    final v = seleccion[key];
-    return v is List ? v.map((e) => e.toString()).toList() : const [];
-  }
-
-  String get tipoLimpieza => _text('tipoLimpieza', 'Limpieza general');
-  String get descripcion => _text('descripcion');
-  String? get servicioExtra {
-    final s = _text('servicioExtra');
-    return s.isEmpty ? null : s;
-  }
-
-  double get precioExtra => _double('precioExtra', 0);
-  String get detallesExtra => _text('detallesExtra');
-  List<String> get condiciones => _strings('condiciones');
-  List<String> get areas => _strings('areas');
-  List<String> get fotos => _strings('fotos');
-  int get metros2 => _int('metros2', 0);
-  String get notas => _text('notas');
-  String get direccion => _text('direccion');
-  String get zona => _text('zona');
-  int get duracionHoras => _int('duracionHoras', 3);
 }
 
 class RequestsApi {
   RequestsApi._();
 
-  /// Convierte la lista del backend. Si una fila viene mal, se ignora y se
-  /// deja el motivo en la consola; así una sola fila rota no oculta todas.
-  static List<RemoteRequest> _parseList(dynamic data, String origen) {
-    if (data is! List) {
-      throw FormatException(
-          '$origen: se esperaba una lista y llegó ${data.runtimeType}: $data');
-    }
+  static List<RemoteRequest> _parseList(dynamic lista, String origen) {
     final out = <RemoteRequest>[];
-    for (final e in data) {
+    for (final e in (lista as List?) ?? const []) {
       try {
         out.add(RemoteRequest.fromJson(e as Map<String, dynamic>));
       } catch (err) {
-        final id = e is Map ? e['id'] : '?';
-        debugPrint('[api] $origen: fila $id ignorada -> $err');
+        debugPrint('[api] $origen: fila ignorada -> $err');
       }
     }
     return out;
   }
 
-  /// Lado CLIENTE: crea la casa y luego la solicitud de limpieza.
-  static Future<RemoteRequest> crear({
-    required int clienteId,
-    required HouseInput casa,
-    required DateTime fecha,
-    required double total,
-    required Map<String, dynamic> seleccion,
-  }) async {
-    final galaxia = await ApiClient.post('/galaxias', casa.toJson())
-        as Map<String, dynamic>;
-
-    final data = await ApiClient.post('/hoyo-negro', {
-      'cliente_id': clienteId,
-      'fecha': fecha.toUtc().toIso8601String(),
-      'seleccion': seleccion,
-      'total': total,
-      'id_galaxias': galaxia['id'],
-    });
-    return RemoteRequest.fromJson(data as Map<String, dynamic>);
-  }
-
-  /// Lado TRABAJADOR: solicitudes que nadie ha tomado.
+  /// Invitaciones pendientes y solicitudes de la bolsa en las que es elegible.
   static Future<List<RemoteRequest>> disponibles() async {
-    final data = await ApiClient.get('/hoyo-negro/disponibles');
-    return _parseList(data, 'disponibles');
+    final data = await ApiClient.get('/api/trabajador/solicitudes/disponibles') as Map<String, dynamic>;
+    return _parseList(data['solicitudes'], 'disponibles');
   }
 
-  /// Lado TRABAJADOR: las que ya aceptó.
-  static Future<List<RemoteRequest>> deTrabajador(int trabajadorId) async {
-    final data = await ApiClient.get('/hoyo-negro?trabajador_id=$trabajadorId');
-    return _parseList(data, 'deTrabajador');
+  /// Las que tiene asignadas (para restaurar la agenda y seguir su estado).
+  static Future<List<RemoteRequest>> asignadas() async {
+    final data = await ApiClient.get('/api/trabajador/solicitudes') as Map<String, dynamic>;
+    return _parseList(data['solicitudes'], 'asignadas').where((r) => r.relacion == 'ASIGNADO').toList();
   }
 
-  /// Lado TRABAJADOR: aceptar. Lanza ApiException (409) si ya la tomó otro.
-  static Future<RemoteRequest> aceptar({
-    required int id,
-    required int trabajadorId,
-  }) async {
-    final data = await ApiClient.patch('/hoyo-negro/$id/aceptar', {
-      'trabajador_id': trabajadorId,
-    });
-    return RemoteRequest.fromJson(data as Map<String, dynamic>);
+  /// Aceptar. 409 si ya la tomó otro, si se cruza con otro servicio o si ya no está disponible.
+  static Future<RemoteRequest> aceptar(int id) async {
+    final data = await ApiClient.post('/api/trabajador/solicitudes/$id/aceptar') as Map<String, dynamic>;
+    return RemoteRequest.fromJson(data['solicitud'] as Map<String, dynamic>);
   }
 
-  /// Consulta las disponibles cada [every]; así la solicitud del cliente
-  /// aparece en la app del trabajador a los pocos segundos.
-  static Stream<List<RemoteRequest>> watchDisponibles({
-    Duration every = const Duration(seconds: 3),
-  }) async* {
-    while (true) {
-      try {
-        yield await disponibles();
-      } on ApiException {
-        // Sin conexión un momento: se ignora y se reintenta en el siguiente ciclo.
-      }
-      await Future<void>.delayed(every);
+  /// Rechazar (definitivo para esa solicitud). Si era invitación, el servidor avisa al cliente.
+  static Future<void> rechazar(int id) => ApiClient.post('/api/trabajador/solicitudes/$id/rechazar');
+
+  /// Iniciar: de 30 min antes a 30 min después de la hora programada.
+  static Future<RemoteRequest> iniciar(int id) async {
+    final data = await ApiClient.post('/api/trabajador/solicitudes/$id/iniciar') as Map<String, dynamic>;
+    return RemoteRequest.fromJson(data['solicitud'] as Map<String, dynamic>);
+  }
+
+  /// Cancelar sin cargo (confirmada, con 24 h o más). La solicitud vuelve a la bolsa.
+  static Future<void> cancelar(int id, String motivo) => ApiClient.post('/api/trabajador/solicitudes/$id/cancelar', {'motivo': motivo});
+
+  /// «Terminado» con 1 a 5 fotos (JPEG, PNG o WebP; 8 MB cada una, 16 MB en total).
+  static Future<void> terminar(int id, List<FotoDeReporte> fotos) async {
+    if (fotos.isEmpty) throw ApiException('Sube al menos 1 fotografía del trabajo terminado.');
+    if (fotos.length > ReportesApi.maxFotos) throw ApiException('Máximo ${ReportesApi.maxFotos} fotografías.');
+    if (fotos.any((f) => f.bytes.length > ReportesApi.maxBytesPorFoto)) throw ApiException('Cada fotografía puede pesar como máximo 8 MB.');
+    if (fotos.fold<int>(0, (s, f) => s + f.bytes.length) > ReportesApi.maxBytesTotales) throw ApiException('Las fotografías pueden sumar como máximo 16 MB.');
+    final request = http.MultipartRequest('POST', Uri.parse('${ApiClient.baseUrl}/api/trabajador/solicitudes/$id/terminar'));
+    if (ApiClient.token != null) request.headers['Authorization'] = 'Bearer ${ApiClient.token}';
+    for (final f in fotos) {
+      request.files.add(http.MultipartFile.fromBytes('fotos', f.bytes, filename: f.nombre));
     }
+    await ReportesApi.enviarMultipart(request);
   }
 }

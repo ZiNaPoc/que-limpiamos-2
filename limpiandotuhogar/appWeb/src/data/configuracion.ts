@@ -23,12 +23,3 @@ export const MARCA = {
 
 // Enlace de descarga de la app móvil
 export const ENLACE_DE_DESCARGA: string = "";
-
-// Cuenta de prueba para entrar al panel
-export const CUENTA_DE_DEMOSTRACION = {
-  correo: "admin@quelimpiamos.demo",
-  telefono: "9981234567",
-  contrasena: "Limpieza2026",
-  nombre: "Admin",
-  nombreDeUsuario: "admin",
-};

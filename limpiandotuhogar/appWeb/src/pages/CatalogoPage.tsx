@@ -180,7 +180,7 @@ function ListaDelCatalogo({ onAgregar, onEditar, onResultado }: ListaDelCatalogo
 
   // Cuenta las solicitudes relacionadas con el servicio.
   function contarSolicitudes(idDelServicio: string) {
-    return solicitudes.filter((solicitud) => solicitud.idDelServicio === idDelServicio).length;
+    return solicitudes.filter((solicitud) => solicitud.idServicio === idDelServicio).length;
   }
 
   // Cuenta los colaboradores que ofrecen este servicio.

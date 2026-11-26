@@ -26,8 +26,9 @@ enum _Metodo { tarjeta, efectivo }
 /// Al confirmar se guarda la solicitud en el backend (igual que antes hacía
 /// la cotización) y se muestra la confirmación.
 ///
-/// El cobro con tarjeta es SIMULADO: los datos de la tarjeta solo se validan
-/// en el teléfono; no se envían ni se guardan.
+/// Por D50 la TARJETA está bloqueada hasta tener una pasarela de pago: solo se puede pagar en
+/// EFECTIVO al terminar el servicio (docs/backend/25 v2). El formulario de tarjeta se conserva
+/// en el código, pero no se puede elegir.
 class PagoScreen extends StatefulWidget {
   const PagoScreen({super.key, required this.request});
 
@@ -44,12 +45,12 @@ class _PagoScreenState extends State<PagoScreen> {
   final TextEditingController _vence = TextEditingController();
   final TextEditingController _cvv = TextEditingController();
 
-  _Metodo _metodo = _Metodo.tarjeta;
+  _Metodo _metodo = _Metodo.efectivo; // D50: tarjeta no disponible
   bool _enviando = false;
 
   ServiceRequestData get request => widget.request;
 
-  /// Monto que se manda como `total` al backend (precio mínimo estimado).
+  /// Precio calculado por el servidor en la cotización (el backend lo vuelve a calcular al crear).
   int get _total => request.priceMin;
 
   bool get _conTarjeta => _metodo == _Metodo.tarjeta;
@@ -150,7 +151,7 @@ class _PagoScreenState extends State<PagoScreen> {
         await Future<void>.delayed(const Duration(milliseconds: 1200));
       }
       // Guarda el inmueble y la solicitud en la base de datos.
-      await SolicitudApi.crear(request, clienteId: user.id);
+      await SolicitudApi.crear(request);
       if (!mounted) return;
       Haptics.success(context);
       setState(() => _enviando = false);
@@ -158,7 +159,7 @@ class _PagoScreenState extends State<PagoScreen> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _enviando = false);
-      showToast(context, e.message, error: true);
+      showToast(context, e.codigo == 'IDENTIDAD_NO_VERIFICADA' ? 'Para enviar una solicitud necesitas tener tu identidad (INE) aprobada.' : e.message, error: true);
     } catch (e, st) {
       debugPrint('[pago] ERROR inesperado: $e\n$st');
       if (!mounted) return;
@@ -172,7 +173,7 @@ class _PagoScreenState extends State<PagoScreen> {
     final colaborador = request.collaborator;
     final aviso = colaborador != null
         ? 'Te avisaremos en «Avisos» cuando $colaborador confirme tu servicio.'
-        : 'Te avisaremos en «Avisos» cuando asignemos a tu colaborador.';
+        : 'Te avisaremos en «Avisos» cuando un colaborador tome tu solicitud de la bolsa.';
     final mensaje = conTarjeta
         ? 'Pagaste ${money(_total)} MXN. $aviso'
         : 'Pagarás en efectivo al terminar el servicio. $aviso';
@@ -275,12 +276,10 @@ class _PagoScreenState extends State<PagoScreen> {
                         _MetodoOption(
                           icon: Icons.credit_card_rounded,
                           title: 'Tarjeta de crédito o débito',
-                          subtitle: 'Paga ahora desde la app',
-                          selected: _metodo == _Metodo.tarjeta,
-                          onTap: _enviando
-                              ? null
-                              : () =>
-                                  setState(() => _metodo = _Metodo.tarjeta),
+                          subtitle: 'No disponible por ahora',
+                          selected: false,
+                          // D50: bloqueada hasta tener pasarela de pago.
+                          onTap: () => showToast(context, 'El pago con tarjeta todavía no está disponible. Paga en efectivo al terminar.', icon: Icons.info_outline_rounded),
                         ),
                         const SizedBox(height: 10),
                         _MetodoOption(
@@ -457,7 +456,7 @@ class _PagoScreenState extends State<PagoScreen> {
         const SizedBox(height: 12),
         const NoticeBox(
           message:
-              'El monto final lo confirma tu colaborador al revisar el servicio.',
+              'El precio lo calcula QueLimpiamos (servicio + extras); es el mismo de tu cotización.',
         ),
       ],
     );
@@ -484,7 +483,7 @@ class _TotalCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Expanded(child: Text('Total estimado', style: AppText.caption)),
+              Expanded(child: Text('Total (efectivo)', style: AppText.caption)),
               Pill(
                 label: request.serviceTitle,
                 background: AppColors.ice,
@@ -510,10 +509,11 @@ class _TotalCard extends StatelessWidget {
               ),
             ),
           ),
-          Text(
-            'Puede ajustarse hasta ${money(request.priceMax)} al confirmar el precio final.',
-            style: AppText.caption,
-          ),
+          if (request.priceMax > request.priceMin)
+            Text(
+              'Puede ajustarse hasta ${money(request.priceMax)} al confirmar el precio final.',
+              style: AppText.caption,
+            ),
           const Divider(height: 22, color: AppColors.divider),
           Row(
             children: [

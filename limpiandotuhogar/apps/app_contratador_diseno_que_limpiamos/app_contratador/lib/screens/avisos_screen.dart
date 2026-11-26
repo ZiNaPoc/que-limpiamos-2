@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../navigation/app_routes.dart';
-import '../services/api_client.dart';
+import '../services/ciclo_api.dart';
+import '../services/historial_api.dart';
 import '../services/session.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -12,8 +13,8 @@ import '../widgets/common.dart';
 import '../widgets/flow_widgets.dart';
 import '../widgets/wave_background.dart';
 import 'app_bottom_nav.dart';
-import 'chat_screen.dart';
 import 'rate_screen.dart';
+import 'solicitud_detalle_screen.dart';
 
 /// Nombre de respaldo si el backend no manda el nombre del colaborador.
 /// Esta pantalla ya usa el nombre real; se deja la constante por si otro
@@ -26,11 +27,17 @@ class _Aviso {
     required this.id,
     required this.colaborador,
     required this.detalle,
+    required this.puedeCalificar,
+    required this.yaCalificado,
   });
 
   final int id;
   final String colaborador;
   final String detalle;
+
+  /// Lo indica el servidor (finalizado, dentro de 168 h, sin reseña previa).
+  final bool puedeCalificar;
+  final bool yaCalificado;
 }
 
 class AvisosScreen extends StatefulWidget {
@@ -44,6 +51,9 @@ class _AvisosScreenState extends State<AvisosScreen> {
   static const Duration _pollEvery = Duration(seconds: 4);
 
   List<_Aviso> _avisos = const [];
+  // Avisos REALES del servidor (D60): confirmaciones, rechazos, vencimientos, D54, reportes…
+  List<Notificacion> _notificaciones = const [];
+  int _noLeidas = 0;
   bool _cargando = true;
   bool _cargandoAhora = false;
   String? _error;
@@ -74,11 +84,13 @@ class _AvisosScreenState extends State<AvisosScreen> {
     }
     _cargandoAhora = true;
     try {
-      final data = await ApiClient.get('/hoyo-negro?cliente_id=$clienteId');
-      final avisos = _parse(data);
+      final avisos = _parse(await HistorialApi.misSolicitudes());
+      final (noLeidas, notificaciones) = await NotificacionesApi.listar();
       if (!mounted) return;
       setState(() {
         _avisos = avisos;
+        _notificaciones = notificaciones;
+        _noLeidas = noLeidas;
         _error = null;
         _cargando = false;
       });
@@ -94,38 +106,20 @@ class _AvisosScreenState extends State<AvisosScreen> {
     }
   }
 
-  /// Se queda solo con las solicitudes que ya aceptó un colaborador.
-  List<_Aviso> _parse(dynamic data) {
-    if (data is! List) return const [];
-    final out = <_Aviso>[];
-    for (final e in data) {
-      if (e is! Map) continue;
-      if (e['estado'] != 'ACEPTADA') continue;
-      final id = e['id'];
-      if (id is! int) continue;
-
-      final t = e['trabajador'];
-      final nombre = t is Map ? (t['name'] as String?)?.trim() : null;
-
-      final sel = e['seleccion'];
-      final tipo = sel is Map ? sel['tipoLimpieza']?.toString() : null;
-      DateTime? fecha;
-      final rawFecha = e['fecha'];
-      if (rawFecha is String) fecha = DateTime.tryParse(rawFecha)?.toLocal();
-
-      final partes = <String>[
-        if (tipo != null && tipo.isNotEmpty) tipo,
-        if (fecha != null) _fmt(fecha),
-      ];
-
-      out.add(_Aviso(
-        id: id,
-        colaborador:
-            (nombre == null || nombre.isEmpty) ? 'Tu colaborador' : nombre,
-        detalle: partes.join(' · '),
-      ));
-    }
-    return out;
+  /// Se queda con las solicitudes que ya tienen colaborador (confirmadas, en proceso o finalizadas).
+  List<_Aviso> _parse(List<SolicitudCliente> solicitudes) {
+    const estados = {'CONFIRMADO', 'EN_PROCESO', 'REALIZADO'};
+    return [
+      for (final s in solicitudes)
+        if (s.trabajadorId != null && estados.contains(s.estado))
+          _Aviso(
+            id: s.id,
+            colaborador: (s.trabajadorNombre ?? '').isEmpty ? 'Tu colaborador' : s.trabajadorNombre!,
+            detalle: [s.servicio, _fmt(s.fechaProgramada.toLocal())].join(' · '),
+            puedeCalificar: s.puedeCalificar,
+            yaCalificado: s.miResena != null,
+          ),
+    ];
   }
 
   String _fmt(DateTime d) {
@@ -133,15 +127,34 @@ class _AvisosScreenState extends State<AvisosScreen> {
     return '${dos(d.day)}/${dos(d.month)}/${d.year} ${dos(d.hour)}:${dos(d.minute)}';
   }
 
-  void _abrirChat(_Aviso a) {
+  // Sin chat en las solicitudes reales (docs/backend/25 v2): se abre el detalle de la solicitud.
+  void _abrirDetalle(_Aviso a) {
     setState(() => _leidos.add(a.id));
-    AppRoutes.push(context, ChatScreen(nombre: a.colaborador));
+    AppRoutes.push(context, SolicitudDetalleScreen(solicitudId: a.id));
+  }
+
+  Future<void> _abrirNotificacion(Notificacion n) async {
+    if (!n.leida) {
+      try {
+        await NotificacionesApi.marcarLeida(n.id);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    if (n.solicitudId != null) await AppRoutes.push(context, SolicitudDetalleScreen(solicitudId: n.solicitudId!));
+    await _cargar();
+  }
+
+  Future<void> _marcarTodas() async {
+    try {
+      await NotificacionesApi.marcarTodas();
+    } catch (_) {}
+    await _cargar();
   }
 
   Future<void> _abrirCalificar(_Aviso a) async {
     final enviado = await AppRoutes.push<bool>(
       context,
-      CalificarScreen(nombre: a.colaborador),
+      CalificarScreen(solicitudId: a.id, nombre: a.colaborador),
     );
     if (enviado == true && mounted) {
       setState(() => _calificados.add(a.id));
@@ -150,7 +163,7 @@ class _AvisosScreenState extends State<AvisosScreen> {
     }
   }
 
-  int get _sinLeer => _avisos.where((a) => !_leidos.contains(a.id)).length;
+  int get _sinLeer => _noLeidas;
 
   @override
   Widget build(BuildContext context) {
@@ -214,7 +227,34 @@ class _AvisosScreenState extends State<AvisosScreen> {
             'Cuando un colaborador acepte tu solicitud, te avisaremos aquí.',
       ));
     }
-    if (_avisos.isNotEmpty) widgets.add(const SectionTitle('Hoy'));
+    if (_notificaciones.isNotEmpty) {
+      widgets.add(const SectionTitle('Avisos'));
+      for (final n in _notificaciones.take(30)) {
+        widgets.add(Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: AppCard(
+            onTap: () => _abrirNotificacion(n),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Row(children: [
+              Icon(n.leida ? Icons.notifications_none_rounded : Icons.notifications_active_rounded, color: n.leida ? AppColors.inkSoft : AppColors.primaryStrong),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(n.titulo, style: AppText.bodyStrong.copyWith(fontWeight: n.leida ? FontWeight.w500 : FontWeight.w700)),
+                  Text(n.mensaje, style: AppText.caption),
+                  Text(_fmt(n.fecha.toLocal()), style: AppText.caption.copyWith(color: AppColors.inkSoft)),
+                ]),
+              ),
+            ]),
+          ),
+        ));
+      }
+      if (_noLeidas > 0) {
+        widgets.add(Align(alignment: Alignment.centerRight, child: TextButton(onPressed: _marcarTodas, child: const Text('Marcar todos como leídos'))));
+      }
+      widgets.add(const SizedBox(height: 14));
+    }
+    if (_avisos.isNotEmpty) widgets.add(const SectionTitle('Tus servicios'));
     var i = 0;
     for (final a in _avisos) {
       widgets.add(FadeSlideIn(
@@ -222,12 +262,15 @@ class _AvisosScreenState extends State<AvisosScreen> {
         delay: FadeSlideIn.stagger(i++),
         child: _tarjetaConfirmado(a),
       ));
-      widgets.add(const SizedBox(height: 12));
-      widgets.add(FadeSlideIn(
-        key: ValueKey('rate-${a.id}'),
-        delay: FadeSlideIn.stagger(i++),
-        child: _tarjetaCalificar(a),
-      ));
+      // La tarjeta de calificar solo aparece cuando el servidor lo permite (o si ya calificaste).
+      if (a.puedeCalificar || a.yaCalificado || _calificados.contains(a.id)) {
+        widgets.add(const SizedBox(height: 12));
+        widgets.add(FadeSlideIn(
+          key: ValueKey('rate-${a.id}'),
+          delay: FadeSlideIn.stagger(i++),
+          child: _tarjetaCalificar(a),
+        ));
+      }
       widgets.add(const SizedBox(height: 22));
     }
     return widgets;
@@ -290,10 +333,10 @@ class _AvisosScreenState extends State<AvisosScreen> {
                 Align(
                   alignment: Alignment.centerRight,
                   child: FilledButton.icon(
-                    onPressed: () => _abrirChat(a),
-                    icon: const Icon(Icons.chat_bubble_outline_rounded,
+                    onPressed: () => _abrirDetalle(a),
+                    icon: const Icon(Icons.receipt_long_outlined,
                         size: 16),
-                    label: const Text('Mensaje'),
+                    label: const Text('Ver detalle'),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primaryStrong,
                       shape: const StadiumBorder(),
@@ -313,7 +356,7 @@ class _AvisosScreenState extends State<AvisosScreen> {
 
   // ─────────────────── TARJETA: CALIFICA TU SERVICIO ───────────────────
   Widget _tarjetaCalificar(_Aviso a) {
-    final calificado = _calificados.contains(a.id);
+    final calificado = a.yaCalificado || _calificados.contains(a.id);
     return AppCard(
       onTap: calificado ? null : () => _abrirCalificar(a),
       padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),

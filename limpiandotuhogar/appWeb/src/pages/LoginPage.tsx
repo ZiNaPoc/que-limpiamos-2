@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {  IMAGENES } from "../data/configuracion";
+import { API_URL } from "../data/api";
 import type { Sesion } from "../data/tipos";
 import { FormaOrganica } from "../components/comunes/FormasOrganicas";
 import { Icono } from "../components/comunes/Icono";
@@ -36,7 +37,7 @@ export function LoginPage({ onAccesoExitoso }: { onAccesoExitoso: (sesion: Sesio
     try {
       // Petición al servidor con correo y contraseña. credentials: "include" permite que el navegador reciba y guarde la cookie de sesión.
       const respuesta = await fetch (
-        `${import.meta.env.VITE_API_URL}/api/auth/admin/login`,
+        `${API_URL}/api/admin/auth/login`,
         {
           method: 'POST',
           headers: {

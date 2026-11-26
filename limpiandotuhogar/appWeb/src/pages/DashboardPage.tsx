@@ -7,10 +7,14 @@ import { InicioPage } from "./InicioPage";
 import { PerfilPage } from "./PerfilPage";
 import { CatalogoPage } from "./CatalogoPage";
 import { ClientesPage } from "./ClientesPage";
+import { ReportesPage } from "./ReportesPage";
 import { ResenasPage } from "./ResenasPage";
 import { SolicitudesPage } from "./SolicitudesPage";
 import { TrabajadoresPage } from "./TrabajadoresPage";
+import { PermisosPage } from "./PermisosPage";
 import { SolicitudesProvider } from "../data/SolicitudesProvider";
+import { ResenasProvider } from "../data/ResenasProvider";
+import { PermisosProvider } from "../data/PermisosProvider";
 
 // "Escritorio" = pantalla de al menos 1024 px y con ratón. Ahí el menú es una barra delgada que se expande; en celular o tableta es un cajón que se abre con el botón.
 const CONSULTA_DE_PANTALLA_DE_ESCRITORIO =
@@ -92,7 +96,7 @@ export function DashboardPage({
       return <PerfilPage sesion={sesion} />;
     }
     if (vistaActual === "solicitudes") {
-      return <SolicitudesPage apertura={apertura} />;
+      return <SolicitudesPage apertura={apertura} onNavegar={navegarA} />;
     }
     if (vistaActual === "trabajadores") {
       return <TrabajadoresPage onNavegar={navegarA} />;
@@ -103,6 +107,12 @@ export function DashboardPage({
     if (vistaActual === "clientes") {
       return <ClientesPage apertura={apertura} />;
     }
+    if (vistaActual === "reportes") {
+      return <ReportesPage onNavegar={navegarA} />;
+    }
+    if (vistaActual === "permisos") {
+      return <PermisosPage sesion={sesion} />;
+    }
     return <ResenasPage onNavegar={navegarA} />;
   }
 
@@ -112,7 +122,9 @@ export function DashboardPage({
   }
 
   return (
-    <SolicitudesProvider>
+    <PermisosProvider>
+      <SolicitudesProvider>
+      <ResenasProvider>
       <div className="relative min-h-screen overflow-x-clip">
         <FormaOrganica className="-right-40 -top-40 h-[34rem] w-[34rem] text-sky/60" />
         <FormaOrganica className="-bottom-48 left-1/3 h-[30rem] w-[30rem] text-moss/20" />
@@ -159,6 +171,8 @@ export function DashboardPage({
           </div>
         </main>
       </div>
-    </SolicitudesProvider>
+      </ResenasProvider>
+      </SolicitudesProvider>
+    </PermisosProvider>
   );
 }

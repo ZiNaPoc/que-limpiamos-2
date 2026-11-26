@@ -9,6 +9,7 @@ import '../services/app_state.dart';
 import '../services/formatters.dart';
 import '../services/haptics.dart';
 import '../services/photo_picker.dart';
+import '../services/session.dart';
 import '../services/validators.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -149,7 +150,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       destructive: true,
     );
     if (!ok || !mounted) return;
+    await Session.instance.clear(avisarServidor: true);
     state.logout();
+    if (!mounted) return;
     AppRoutes.resetTo(context, const WelcomeScreen());
   }
 

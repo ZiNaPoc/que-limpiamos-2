@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/service_request.dart';
 import '../navigation/app_routes.dart';
@@ -9,6 +10,7 @@ import '../services/app_scope.dart';
 import '../services/app_state.dart';
 import '../services/formatters.dart';
 import '../services/haptics.dart';
+import '../services/resenas_reportes_api.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_modals.dart';
@@ -76,7 +78,14 @@ class RequestActions {
       confirmLabel: 'Rechazar solicitud',
     );
     if (reason == null || !context.mounted) return;
-    state.rejectRequest(r.id, reason.toLowerCase());
+    if (state.isRemote(r)) {
+      // Solicitud real: el rechazo va al servidor (si era invitación, avisa al cliente).
+      final error = await state.rejectRemote(r.id);
+      if (!context.mounted) return;
+      if (error != null) return _fail(context, error);
+    } else {
+      state.rejectRequest(r.id, reason.toLowerCase());
+    }
     _done(context, 'Solicitud rechazada.', icon: Icons.close_rounded);
     if (popAfter) Navigator.of(context).maybePop();
   }
@@ -210,7 +219,8 @@ class RequestActions {
       confirmLabel: 'Cancelar servicio',
     );
     if (reason == null || !context.mounted) return;
-    final error = state.cancelService(r.id, reason.toLowerCase());
+    final error = state.isRemote(r) ? await state.cancelRemote(r.id, reason) : state.cancelService(r.id, reason.toLowerCase());
+    if (!context.mounted) return;
     if (error != null) return _fail(context, error);
     _done(context, 'Servicio cancelado.', icon: Icons.event_busy_rounded);
   }
@@ -227,7 +237,8 @@ class RequestActions {
       icon: Icons.play_circle_outline_rounded,
     );
     if (!ok || !context.mounted) return;
-    final error = state.startJob(r.id);
+    final error = state.isRemote(r) ? await state.startRemote(r.id) : state.startJob(r.id);
+    if (!context.mounted) return;
     if (error != null) return _fail(context, error);
     _done(context, 'Servicio en curso. ¡Éxito!', icon: Icons.timelapse_rounded);
   }
@@ -236,6 +247,7 @@ class RequestActions {
     final state = AppScope.read(context);
     final check = state.canFinish(r);
     if (!check.allowed) return _fail(context, check.reason);
+    if (state.isRemote(r)) return _finishRemote(context, r);
     final ok = await confirmAction(
       context,
       title: 'Finalizar servicio',
@@ -260,6 +272,35 @@ class RequestActions {
     if (rateNow && context.mounted) {
       AppRoutes.push(context, RateClientScreen(requestId: r.id));
     }
+  }
+
+  /// Solicitud real: «Marcar terminado» exige de 1 a 5 fotos del trabajo (D54). Después el cliente
+  /// confirma o, si no responde, el sistema lo confirma con tu evidencia.
+  static Future<void> _finishRemote(BuildContext context, ServiceRequest r) async {
+    final state = AppScope.read(context);
+    final ok = await confirmAction(
+      context,
+      title: 'Marcar terminado',
+      message: 'Sube de 1 a 5 fotos del trabajo terminado. El cliente las verá para confirmar el servicio.',
+      confirmLabel: 'Elegir fotos',
+      icon: Icons.photo_library_outlined,
+    );
+    if (!ok || !context.mounted) return;
+    List<XFile> elegidas;
+    try {
+      elegidas = await ImagePicker().pickMultiImage(limit: ReportesApi.maxFotos, imageQuality: 85, maxWidth: 2000);
+    } catch (_) {
+      if (context.mounted) _fail(context, 'No se pudieron abrir tus fotos.');
+      return;
+    }
+    if (!context.mounted || elegidas.isEmpty) return;
+    if (elegidas.length > ReportesApi.maxFotos) return _fail(context, 'Elige como máximo ${ReportesApi.maxFotos} fotos.');
+    final fotos = <FotoDeReporte>[for (final f in elegidas) (nombre: f.name, bytes: await f.readAsBytes())];
+    if (!context.mounted) return;
+    final error = await state.finishRemote(r.id, fotos);
+    if (!context.mounted) return;
+    if (error != null) return _fail(context, error);
+    _done(context, 'Marcaste el servicio como terminado. Falta la confirmación del cliente.', icon: Icons.task_alt_rounded);
   }
 }
 

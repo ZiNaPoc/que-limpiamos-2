@@ -15,6 +15,8 @@ import '../widgets/organic.dart';
 import '../widgets/wave_background.dart';
 import 'app_bottom_nav.dart';
 import 'historial_screen.dart';
+import 'mis_inmuebles_screen.dart';
+import 'mis_resenas_reportes_screen.dart';
 import 'welcome_screen.dart';
 
 class PerfilScreen extends StatefulWidget {
@@ -95,7 +97,8 @@ class _PerfilScreenState extends State<PerfilScreen> {
       destructive: true,
     );
     if (!ok || !mounted) return;
-    Session.instance.clear();
+    await Session.instance.clear(avisarServidor: true);
+    if (!mounted) return;
     AppRoutes.resetTo(context, const WelcomeScreen());
   }
 
@@ -123,6 +126,16 @@ class _PerfilScreenState extends State<PerfilScreen> {
                 onPressed: () =>
                     AppRoutes.push(context, const HistorialScreen()),
               ),
+            ),
+            const SizedBox(height: 6),
+            // Accesos a mis reseñas y mis reportes (Fase 3b).
+            Wrap(
+              spacing: 8,
+              children: [
+                ActionChip(avatar: const Icon(Icons.home_work_outlined, size: 18), label: const Text('Mis inmuebles'), onPressed: () => AppRoutes.push(context, const MisInmueblesScreen())),
+                ActionChip(avatar: const Icon(Icons.star_outline_rounded, size: 18), label: const Text('Mis reseñas'), onPressed: () => AppRoutes.push(context, const MisResenasScreen())),
+                ActionChip(avatar: const Icon(Icons.flag_outlined, size: 18), label: const Text('Mis reportes'), onPressed: () => AppRoutes.push(context, const MisReportesScreen())),
+              ],
             ),
             const SizedBox(height: 10),
 

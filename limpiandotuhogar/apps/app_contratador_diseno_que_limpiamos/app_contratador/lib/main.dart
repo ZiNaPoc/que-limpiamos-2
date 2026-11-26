@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'package:app_contratador/navigation/app_routes.dart';
+import 'package:app_contratador/navigation/navigator_key.dart';
 import 'package:app_contratador/screens/splash_screen.dart';
+import 'package:app_contratador/screens/welcome_screen.dart';
+import 'package:app_contratador/services/api_client.dart';
+import 'package:app_contratador/services/session.dart';
 import 'package:app_contratador/theme/app_theme.dart';
 
 void main() {
@@ -20,6 +25,17 @@ void main() {
     systemNavigationBarIconBrightness: Brightness.dark,
   ));
 
+  // Si el backend responde 401 a una petición con token (sesión vencida o
+  // contraseña cambiada), se borra la sesión y se vuelve a la bienvenida.
+  ApiClient.onSesionVencida = () {
+    final estabaDentro = Session.instance.isLoggedIn;
+    Session.instance.clear();
+    if (estabaDentro) {
+      navigatorKey.currentState?.pushAndRemoveUntil(
+          AppRoutes.fade(const WelcomeScreen()), (route) => false);
+    }
+  };
+
   runApp(const MainApp());
 }
 
@@ -30,6 +46,7 @@ class MainApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: '¿Qué limpiamos?',
+      navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       locale: const Locale('es', 'MX'),

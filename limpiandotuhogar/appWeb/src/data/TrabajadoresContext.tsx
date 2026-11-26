@@ -3,7 +3,7 @@ import { crearSiguienteId } from "../utils/formato";
 import { validarHorario } from "../utils/horarios";
 import { buscarServiciosActivosDelTrabajador, buscarServiciosFueraDelHorario } from "../utils/reglasDeSolicitudes";
 import { TRABAJADORES_DE_DEMOSTRACION } from "./trabajadores";
-import type { DatosDeTrabajador, ResultadoDeOperacion, Solicitud, Trabajador } from "./tipos";
+import type { DatosDeTrabajador, ResultadoDeOperacion, SolicitudListado, Trabajador } from "./tipos";
 
 // Un mensaje de error por campo del formulario (solo trae los campos que tienen error).
 export type ErroresDeTrabajador = Partial<Record<"nombre" | "telefono" | "correo" | "direccion" | "especialidades" | "horario", string>>;
@@ -91,8 +91,8 @@ function normalizarDatos(datos: DatosDeTrabajador): DatosDeTrabajador {
 type ValorDelContextoDeTrabajadores = {
   trabajadores: Trabajador[];
   agregarTrabajador: (datos: DatosDeTrabajador) => ResultadoDeOperacion;
-  editarTrabajador: (idDelTrabajador: string, datos: DatosDeTrabajador, solicitudes: Solicitud[]) => ResultadoDeOperacion;
-  cambiarEstadoDelTrabajador: (idDelTrabajador: string, solicitudes: Solicitud[]) => ResultadoDeOperacion;
+  editarTrabajador: (idDelTrabajador: string, datos: DatosDeTrabajador, solicitudes: SolicitudListado[]) => ResultadoDeOperacion;
+  cambiarEstadoDelTrabajador: (idDelTrabajador: string, solicitudes: SolicitudListado[]) => ResultadoDeOperacion;
 };
 
 const TrabajadoresContext = createContext<ValorDelContextoDeTrabajadores | null>(null);
@@ -123,7 +123,7 @@ export function TrabajadoresProvider({ children }: { children: ReactNode }) {
   }
 
   // valida los datos y revisa que el nuevo horario no deje fuera servicios ya acordados (pendientes o confirmados).
-  function editarTrabajador(idDelTrabajador: string, datos: DatosDeTrabajador, solicitudes: Solicitud[]): ResultadoDeOperacion {
+  function editarTrabajador(idDelTrabajador: string, datos: DatosDeTrabajador, solicitudes: SolicitudListado[]): ResultadoDeOperacion {
     const trabajadorOriginal = trabajadores.find((trabajador) => trabajador.id === idDelTrabajador);
     if (!trabajadorOriginal) {
       return { exito: false, mensaje: "No se encontró al colaborador." };
@@ -143,7 +143,7 @@ export function TrabajadoresProvider({ children }: { children: ReactNode }) {
 
   // ACTIVAR / DESACTIVAR: un colaborador con servicios por atender no se puede desactivar.
   // Un colaborador inactivo no recibe solicitudes ni aparece en la app del cliente.
-  function cambiarEstadoDelTrabajador(idDelTrabajador: string, solicitudes: Solicitud[]): ResultadoDeOperacion {
+  function cambiarEstadoDelTrabajador(idDelTrabajador: string, solicitudes: SolicitudListado[]): ResultadoDeOperacion {
     const trabajador = trabajadores.find((trabajadorBuscado) => trabajadorBuscado.id === idDelTrabajador);
     if (!trabajador) {
       return { exito: false, mensaje: "No se encontró al colaborador." };

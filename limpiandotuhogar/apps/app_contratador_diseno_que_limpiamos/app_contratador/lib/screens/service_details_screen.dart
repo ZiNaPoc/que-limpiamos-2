@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/service_catalog.dart';
 import '../navigation/app_routes.dart';
+import '../services/ciclo_api.dart';
 import '../services/haptics.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -13,7 +14,8 @@ import '../widgets/wave_background.dart';
 import 'service_request_data.dart';
 import 'service_request_screen.dart';
 
-/// Paso 1: datos del inmueble y dirección del servicio.
+/// Paso 1: datos del inmueble y dirección del servicio. Se puede elegir uno de «Mis inmuebles»
+/// o capturar uno nuevo (y guardarlo con un nombre). La solicitud guarda su propia copia.
 class ServiceDetailsScreen extends StatefulWidget {
   const ServiceDetailsScreen({
     super.key,
@@ -68,10 +70,61 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
   final List<bool> confirmadas = [false, false, false, false];
   final TextEditingController direccionController = TextEditingController();
 
+  // «Mis inmuebles»: el elegido se usa tal cual; si se cambia algún dato, pasa a ser uno nuevo.
+  List<Inmueble> _guardados = const [];
+  Inmueble? _elegido;
+
+  @override
+  void initState() {
+    super.initState();
+    direccionController.addListener(() {
+      if (_elegido != null && direccionController.text != _elegido!.direccion) setState(() => _elegido = null);
+    });
+    InmueblesApi.listar().then((l) {
+      if (mounted) setState(() => _guardados = l);
+    }).catchError((Object _) {});
+  }
+
   @override
   void dispose() {
     direccionController.dispose();
     super.dispose();
+  }
+
+  void _usarGuardado(Inmueble i) {
+    setState(() {
+      tipoCasa = i.tipoApp;
+      cantidades.setAll(0, [i.habitaciones, i.banos, i.mediosBanos, i.pisos]);
+      for (var k = 0; k < confirmadas.length; k++) {
+        confirmadas[k] = true;
+        abiertas[k] = false;
+      }
+      direccionController.text = i.direccion;
+      _elegido = i;
+    });
+  }
+
+  /// Pide el nombre con el que se guardará el inmueble (p. ej. «Casa Playa»).
+  Future<String?> _pedirNombre() async {
+    final ctrl = TextEditingController();
+    final nombre = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Guardar inmueble'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLength: 100,
+          decoration: const InputDecoration(labelText: 'Nombre', hintText: 'Ej. Airbnb Centro, Casa Playa'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    return (nombre == null || nombre.isEmpty) ? null : nombre;
   }
 
   void _confirmar(int i) {
@@ -81,17 +134,23 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
     });
   }
 
-  void _continuar({required bool guardar}) {
+  Future<void> _continuar({required bool guardar}) async {
     final direccion = direccionController.text.trim();
-    if (direccion.isEmpty) {
+    if (direccion.length < 5) {
       showToast(context, 'Escribe la dirección del servicio', error: true);
       return;
     }
     FocusScope.of(context).unfocus();
 
-    if (guardar) {
-      // TODO: guardar los datos del inmueble para reutilizarlos (fuera del MVP)
+    // Guardar: se pide el nombre; el servidor lo guarda al crear la solicitud.
+    String? guardarComo;
+    if (guardar && _elegido == null) {
+      guardarComo = await _pedirNombre();
+      if (guardarComo == null || !mounted) return;
+    } else if (guardar && _elegido != null) {
+      showToast(context, 'Este inmueble ya está en «Mis inmuebles».', icon: Icons.info_outline_rounded);
     }
+    if (!mounted) return;
     AppRoutes.push(
       context,
       ServiceRequestScreen(
@@ -106,6 +165,9 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
           halfBaths: cantidades[2],
           floors: cantidades[3],
           address: direccion,
+          inmuebleId: _elegido?.id,
+          alias: _elegido?.nombre ?? guardarComo,
+          guardarComo: guardarComo,
         ),
       ),
       name: 'solicitud',
@@ -131,6 +193,26 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
                     subtitle: 'Datos del inmueble',
                   ),
                   const SizedBox(height: 20),
+                  if (_guardados.isNotEmpty) ...[
+                    Text('Mis inmuebles', style: AppText.heading),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final i in _guardados)
+                          SelectChip(
+                            label: i.nombre,
+                            selected: _elegido?.id == i.id,
+                            icon: Icons.bookmark_outline_rounded,
+                            onTap: () => _usarGuardado(i),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(_elegido == null ? 'O captura uno nuevo abajo.' : 'Usarás «${_elegido!.nombre}». Si cambias un dato, se tomará como un inmueble nuevo.', style: AppText.caption),
+                    const SizedBox(height: 20),
+                  ],
                   Text('Tipo de casa', style: AppText.heading),
                   const SizedBox(height: 10),
                   Wrap(
@@ -142,7 +224,10 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
                           label: tipo,
                           selected: tipoCasa == tipo,
                           icon: _iconosTipo[tipo],
-                          onTap: () => setState(() => tipoCasa = tipo),
+                          onTap: () => setState(() {
+                            if (tipoCasa != tipo) _elegido = null;
+                            tipoCasa = tipo;
+                          }),
                         ),
                     ],
                   ),
@@ -161,7 +246,10 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
                           summary: confirmadas[i] ? '${cantidades[i]}' : null,
                           onToggle: () =>
                               setState(() => abiertas[i] = !abiertas[i]),
-                          onChanged: (v) => setState(() => cantidades[i] = v),
+                          onChanged: (v) => setState(() {
+                            cantidades[i] = v;
+                            _elegido = null;
+                          }),
                           onDone: () => _confirmar(i),
                         ),
                       ),

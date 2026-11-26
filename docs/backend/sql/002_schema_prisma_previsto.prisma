@@ -1,0 +1,1007 @@
+// ESQUEMA PRISMA PREVISTO tras el SQL 002 (v10) — NO es el schema activo.
+// Se copia a prisma/schema.prisma solo DESPUÉS de ejecutar el SQL y verificarlo.
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model documentos_cliente {
+  id          Int                     @id @default(autoincrement())
+  usuario_id  Int
+  tipo        documentos_cliente_tipo
+  archivo_url String                  @db.VarChar(255)
+  created_at  DateTime                @default(now()) @db.DateTime(0)
+  usuarios    usuarios                @relation("documentos_cliente_dueno", fields: [usuario_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_doc_cliente_usuario")
+  estado         documentos_cliente_estado @default(PENDIENTE)
+  motivo_rechazo String?                   @db.VarChar(255)
+  revisado_en    DateTime?                 @db.DateTime(0)
+  revisado_por   Int?
+  archivo_eliminado_en DateTime?                 @db.DateTime(0)
+  revisor usuarios? @relation("documentos_cliente_revisor", fields: [revisado_por], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_doc_cliente_revisor")
+
+  @@unique([usuario_id, tipo], map: "uq_doc_cliente_tipo")
+  @@index([revisado_por], map: "idx_doc_cliente_revisor")
+}
+
+model documentos_trabajador {
+  id            Int                        @id @default(autoincrement())
+  trabajador_id Int
+  tipo          documentos_trabajador_tipo
+  archivo_url   String                     @db.VarChar(255)
+  created_at    DateTime                   @default(now()) @db.DateTime(0)
+  trabajadores  trabajadores               @relation(fields: [trabajador_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_doc_trabajador")
+  estado         documentos_trabajador_estado @default(PENDIENTE)
+  motivo_rechazo String?                      @db.VarChar(255)
+  revisado_en    DateTime?                    @db.DateTime(0)
+  revisado_por   Int?
+  archivo_eliminado_en DateTime?                    @db.DateTime(0)
+  revisor usuarios? @relation("documentos_trabajador_revisor", fields: [revisado_por], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_doc_trabajador_revisor")
+
+  @@unique([trabajador_id, tipo], map: "uq_doc_trabajador_tipo")
+  @@index([revisado_por], map: "idx_doc_trabajador_revisor")
+}
+
+model evidencias_solicitud {
+  id           Int         @id @default(autoincrement())
+  solicitud_id Int
+  archivo_url  String      @db.VarChar(255)
+  descripcion  String?     @db.VarChar(255)
+  created_at   DateTime    @default(now()) @db.DateTime(0)
+  solicitudes  solicitudes @relation(fields: [solicitud_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_evid_solicitud")
+  aportada_por evidencias_solicitud_aportada_por @default(TRABAJADOR)
+  reporte_id   Int?
+  solicitud_reportes solicitud_reportes? @relation(fields: [reporte_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_evid_reporte")
+
+  @@index([solicitud_id], map: "fk_evid_solicitud")
+  @@index([reporte_id], map: "idx_evid_reporte")
+}
+
+model notificaciones {
+  id           Int                 @id @default(autoincrement())
+  usuario_id   Int
+  solicitud_id Int?
+  tipo         notificaciones_tipo
+  titulo       String              @db.VarChar(100)
+  mensaje      String              @db.VarChar(255)
+  created_at   DateTime            @default(now()) @db.DateTime(0)
+  solicitudes  solicitudes?        @relation(fields: [solicitud_id], references: [id], onUpdate: NoAction, map: "fk_notif_solicitud")
+  usuarios     usuarios            @relation(fields: [usuario_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_notif_usuario")
+  leida_en     DateTime?           @db.DateTime(0)
+
+  @@index([solicitud_id], map: "fk_notif_solicitud")
+  @@index([usuario_id], map: "fk_notif_usuario")
+  @@index([usuario_id, leida_en], map: "idx_notif_usuario_leida")
+}
+
+model password_reset_tokens {
+  id         Int      @id @default(autoincrement())
+  usuario_id Int
+  token_hash String   @unique(map: "uq_reset_token") @db.Char(64)
+  expira_en  DateTime @db.DateTime(0)
+  usado      Boolean  @default(false)
+  created_at DateTime @default(now()) @db.DateTime(0)
+  usuarios   usuarios @relation(fields: [usuario_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_reset_usuario")
+
+  @@index([usuario_id], map: "fk_reset_usuario")
+}
+
+model resenas {
+  id                    Int         @id @default(autoincrement())
+  solicitud_id          Int         @unique(map: "uq_resena_solicitud")
+  puntuacion_servicio   Int         @db.TinyInt
+  puntuacion_trabajador Int         @db.TinyInt
+  comentario            String?     @db.Text
+  created_at            DateTime    @default(now()) @db.DateTime(0)
+  solicitudes           solicitudes @relation(fields: [solicitud_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_resena_solicitud")
+}
+
+model servicios {
+  id                    Int                    @id @default(autoincrement())
+  nombre                String                 @unique(map: "uq_servicios_nombre") @db.VarChar(100)
+  descripcion           String                 @db.Text
+  precio_base           Decimal                @db.Decimal(10, 2)
+  duracion_estimada_min Int                    @default(300) @db.UnsignedSmallInt
+  imagen_url            String?                @db.VarChar(255)
+  estado                servicios_estado       @default(ACTIVO)
+  created_at            DateTime               @default(now()) @db.DateTime(0)
+  updated_at            DateTime               @updatedAt @default(now()) @db.DateTime(0)
+  solicitudes           solicitudes[]
+  trabajador_servicios  trabajador_servicios[]
+  servicio_calculo               servicio_calculo?
+  servicio_calculo_tipo_inmueble servicio_calculo_tipo_inmueble[]
+  servicio_especialidades        servicio_especialidades[]
+  descuento_servicios            descuento_servicios[]
+}
+
+model solicitudes {
+  id                    Int                    @id @default(autoincrement())
+  cliente_id            Int
+  servicio_id           Int
+  inmueble_id           Int?
+  trabajador_id         Int?
+  fecha_hora_programada DateTime               @db.DateTime(0)
+  direccion_servicio    String                 @db.VarChar(255)
+  precio_estimado       Decimal                @db.Decimal(10, 2)
+  estado                solicitudes_estado     @default(PENDIENTE)
+  created_at            DateTime               @default(now()) @db.DateTime(0)
+  updated_at            DateTime               @updatedAt @default(now()) @db.DateTime(0)
+  evidencias_solicitud  evidencias_solicitud[]
+  notificaciones        notificaciones[]
+  resenas               resenas?
+  usuarios              usuarios               @relation(fields: [cliente_id], references: [id], onUpdate: NoAction, map: "fk_sol_cliente")
+  inmuebles             inmuebles?             @relation(fields: [inmueble_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_sol_inmueble")
+  servicios             servicios              @relation(fields: [servicio_id], references: [id], onUpdate: NoAction, map: "fk_sol_servicio")
+  trabajadores          trabajadores?          @relation(fields: [trabajador_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_sol_trabajador")
+  servicio_nombre_aplicado       String?                            @db.VarChar(100)
+  inmueble_tipo_aplicado         solicitudes_inmueble_tipo_aplicado?
+  habitaciones_aplicado          Int?                               @db.UnsignedTinyInt
+  banos_aplicado                 Int?                               @db.UnsignedTinyInt
+  medios_banos_aplicado          Int?                               @db.UnsignedTinyInt
+  pisos_aplicado                 Int?                               @db.UnsignedTinyInt
+  duracion_estimada_min          Int?                               @db.UnsignedSmallInt
+  fecha_hora_fin_estimada        DateTime?                          @db.DateTime(0)
+  notas                          String?                            @db.Text
+  precio_base_aplicado           Decimal?                           @db.Decimal(10, 2)
+  precio_tamano_aplicado         Decimal?                           @db.Decimal(10, 2)
+  precio_ajuste_tipo_aplicado    Decimal?                           @db.Decimal(10, 2)
+  precio_extras_aplicado         Decimal?                           @db.Decimal(10, 2)
+  precio_descuento_aplicado      Decimal?                           @db.Decimal(10, 2)
+  porcentaje_trabajador_aplicado Decimal?                           @db.Decimal(5, 2)
+  ganancia_trabajador            Decimal?                           @db.Decimal(10, 2)
+  comision_plataforma            Decimal?                           @db.Decimal(10, 2)
+  cargo_cancelacion              Decimal?                           @db.Decimal(10, 2)
+  metodo_pago                    solicitudes_metodo_pago            @default(EFECTIVO)
+  adeudo_cobrado                 Decimal?                           @db.Decimal(10, 2)
+  estado_pago                    solicitudes_estado_pago            @default(PENDIENTE)
+  pago_registrado_en             DateTime?                          @db.DateTime(0)
+  pago_registrado_por            solicitudes_pago_registrado_por?
+  trabajador_marco_realizado_en  DateTime?                          @db.DateTime(0)
+  cliente_marco_realizado_en     DateTime?                          @db.DateTime(0)
+  confirmacion_solicitada_en     DateTime?                          @db.DateTime(0)
+  aviso_evidencia_en             DateTime?                          @db.DateTime(0)
+  realizado_en                   DateTime?                          @db.DateTime(0)
+  realizado_via                  solicitudes_realizado_via?
+  ganancia_liberada_en           DateTime?                          @db.DateTime(0)
+  modo_eleccion                  solicitudes_modo_eleccion          @default(AUTOMATICA)
+  solicitud_areas                solicitud_areas[]
+  solicitud_extras               solicitud_extras[]
+  solicitud_especialidades       solicitud_especialidades[]
+  solicitud_trabajadores         solicitud_trabajadores[]
+  solicitud_historial            solicitud_historial[]
+  trabajador_movimientos         trabajador_movimientos[]
+  notificaciones_trabajador      notificaciones_trabajador[]
+  descuento_usos                 descuento_usos?
+  adeudos_originados             cliente_adeudos[]                  @relation("adeudo_origen")
+  adeudos_cobrados               cliente_adeudos[]                  @relation("adeudo_cobro")
+  solicitud_reportes             solicitud_reportes[]
+  solicitud_resoluciones         solicitud_resoluciones[]
+
+  @@index([servicio_id], map: "fk_sol_servicio")
+  @@index([cliente_id, estado], map: "idx_sol_cliente_estado")
+  @@index([estado, fecha_hora_programada], map: "idx_sol_estado_fecha")
+  @@index([trabajador_id, fecha_hora_programada], map: "idx_sol_trabajador_fecha")
+  @@index([inmueble_id], map: "idx_sol_inmueble")
+}
+
+model trabajador_horarios {
+  id            Int          @id @default(autoincrement())
+  trabajador_id Int
+  dia_semana    Int          @db.TinyInt
+  hora_inicio   DateTime     @db.Time(0)
+  hora_fin      DateTime     @db.Time(0)
+  trabajadores  trabajadores @relation(fields: [trabajador_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_horario_trabajador")
+
+  @@index([trabajador_id, dia_semana, hora_inicio], map: "idx_horario_trabajador_dia")
+}
+
+model trabajador_servicios {
+  trabajador_id Int
+  servicio_id   Int
+  servicios     servicios    @relation(fields: [servicio_id], references: [id], onUpdate: NoAction, map: "fk_ts_servicio")
+  trabajadores  trabajadores @relation(fields: [trabajador_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ts_trabajador")
+
+  @@id([trabajador_id, servicio_id])
+  @@index([servicio_id], map: "fk_ts_servicio")
+}
+
+model trabajadores {
+  id                    Int                     @id @default(autoincrement())
+  nombre_completo       String                  @db.VarChar(120)
+  telefono              String                  @unique(map: "uq_trabajadores_telefono") @db.Char(10)
+  correo                String                  @unique(map: "uq_trabajadores_correo") @db.VarChar(150)
+  /// Añadido en que-limpiamos-3 (decisión D1, 2026-11-24). Ver docs/backend/sql/001_trabajadores_password_hash.sql
+  password_hash         String?                 @db.VarChar(255)
+  direccion             String                  @db.VarChar(255)
+  foto_url              String?                 @db.VarChar(255)
+  estado                trabajadores_estado     @default(ACTIVO)
+  created_at            DateTime                @default(now()) @db.DateTime(0)
+  updated_at            DateTime                @updatedAt @default(now()) @db.DateTime(0)
+  documentos_trabajador documentos_trabajador[]
+  solicitudes           solicitudes[]
+  trabajador_horarios   trabajador_horarios[]
+  trabajador_servicios  trabajador_servicios[]
+  estado_verificacion       trabajadores_estado_verificacion @default(PENDIENTE)
+  mostrar_fuera_de_horario  Boolean                          @default(false)
+  baja_en                   DateTime?                        @db.DateTime(0)
+  baja_tipo                 trabajadores_baja_tipo?
+  baja_motivo               String?                          @db.VarChar(255)
+  identidad_huella          String?                          @unique(map: "uq_trabajadores_identidad") @db.Char(64)
+  identidad_registrada_en   DateTime?                        @db.DateTime(0)
+  trabajador_especialidades trabajador_especialidades[]
+  solicitud_trabajadores    solicitud_trabajadores[]
+  trabajador_movimientos    trabajador_movimientos[]
+  notificaciones_trabajador notificaciones_trabajador[]
+  trabajador_estado_historial trabajador_estado_historial[]
+  adeudos_cobrados          cliente_adeudos[]
+  solicitud_reportes        solicitud_reportes[]
+}
+
+model usuarios {
+  id                    Int                           @id @default(autoincrement())
+  rol                   usuarios_rol                  @default(CLIENTE)
+  nombre_completo       String                        @db.VarChar(120)
+  correo                String                        @unique(map: "uq_usuarios_correo") @db.VarChar(150)
+  telefono              String?                       @unique(map: "uq_usuarios_telefono") @db.Char(10)
+  password_hash         String                        @db.VarChar(255)
+  foto_url              String?                       @db.VarChar(255)
+  estado_cuenta         usuarios_estado_cuenta        @default(ACTIVA)
+  estado_verificacion   usuarios_estado_verificacion? @default(PENDIENTE)
+  created_at            DateTime                      @default(now()) @db.DateTime(0)
+  documentos_cliente    documentos_cliente[]          @relation("documentos_cliente_dueno")
+  documentos_cliente_revisados    documentos_cliente[]    @relation("documentos_cliente_revisor")
+  documentos_trabajador_revisados documentos_trabajador[] @relation("documentos_trabajador_revisor")
+  trabajador_estado_historial     trabajador_estado_historial[]
+  descuentos_creados              descuentos[]
+  descuento_usos                  descuento_usos[]
+  cliente_adeudos                 cliente_adeudos[]
+  solicitud_reportes              solicitud_reportes[]
+  solicitud_resoluciones          solicitud_resoluciones[]
+  inmuebles             inmuebles[]
+  notificaciones        notificaciones[]
+  password_reset_tokens password_reset_tokens[]
+  solicitudes           solicitudes[]
+  identidad_huella      String?                       @unique(map: "uq_usuarios_identidad") @db.Char(64)
+  identidad_registrada_en DateTime?                   @db.DateTime(0)
+}
+
+model inmuebles {
+  id           Int            @id @default(autoincrement())
+  usuario_id   Int
+  alias        String?        @db.VarChar(100)
+  tipo         inmuebles_tipo @default(CASA)
+  direccion    String         @db.VarChar(255)
+  habitaciones Int            @default(0) @db.UnsignedTinyInt
+  banos        Int            @default(0) @db.UnsignedTinyInt
+  medios_banos Int            @default(0) @db.UnsignedTinyInt
+  pisos        Int            @default(1) @db.UnsignedTinyInt
+  created_at   DateTime       @default(now()) @db.DateTime(0)
+  updated_at   DateTime       @updatedAt @default(now()) @db.DateTime(0)
+  usuarios     usuarios       @relation(fields: [usuario_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_inmueble_usuario")
+  solicitudes  solicitudes[]
+  archivado_en DateTime?      @db.DateTime(0)
+
+  @@index([usuario_id], map: "idx_inmueble_usuario")
+}
+
+enum usuarios_rol {
+  CLIENTE
+  ADMIN
+}
+
+enum documentos_cliente_tipo {
+  INE_FRENTE
+  INE_REVERSO
+}
+
+enum documentos_trabajador_tipo {
+  IDENTIFICACION
+  COMPROBANTE_DOMICILIO
+}
+
+enum notificaciones_tipo {
+  SERVICIO_CONFIRMADO
+  CALIFICAR_SERVICIO
+  INVITACION_RECHAZADA
+  INVITACIONES_RECHAZADAS
+  SOLICITUD_DEVUELTA_A_BOLSA
+  DOCUMENTOS_APROBADOS
+  DOCUMENTOS_RECHAZADOS
+  SERVICIO_CANCELADO_POR_PLATAFORMA
+  ADEUDO_REGISTRADO
+  CONFIRMAR_SERVICIO_REALIZADO
+  AVISO_CONFIRMACION_CON_EVIDENCIA
+  SERVICIO_CONFIRMADO_AUTOMATICAMENTE
+  REPORTE_REGISTRADO
+  REPORTE_RESUELTO
+}
+
+enum trabajadores_estado {
+  ACTIVO
+  INACTIVO
+  BAJA
+}
+
+enum servicios_estado {
+  ACTIVO
+  INACTIVO
+}
+
+enum usuarios_estado_cuenta {
+  ACTIVA
+  SUSPENDIDA
+}
+
+enum usuarios_estado_verificacion {
+  PENDIENTE
+  VERIFICADO
+  RECHAZADO
+}
+
+enum solicitudes_estado {
+  PENDIENTE
+  CONFIRMADO
+  EN_PROCESO
+  REALIZADO
+  CANCELADO
+  RECHAZADO
+}
+
+enum inmuebles_tipo {
+  CASA
+  OFICINA
+  DEPARTAMENTO
+}
+
+// ════════ Nuevos (SQL 002 v9) ════════
+/// Descuentos creados por el admin. La plataforma absorbe la pérdida.
+model descuentos {
+  id                      Int                   @id @default(autoincrement())
+  nombre                  String                @db.VarChar(100)
+  descripcion             String?               @db.VarChar(255)
+  tipo                    descuentos_tipo
+  valor                   Decimal               @db.Decimal(10, 2)
+  /// NULL = descuento automático (sin código).
+  codigo                  String?               @unique(map: "uq_descuentos_codigo") @db.VarChar(40)
+  fecha_inicio            DateTime              @db.DateTime(0)
+  fecha_fin               DateTime              @db.DateTime(0)
+  monto_minimo            Decimal?              @db.Decimal(10, 2)
+  todos_los_servicios     Boolean               @default(false)
+  limite_usos             Int?                  @db.UnsignedInt
+  limite_usos_por_cliente Int?                  @db.UnsignedInt
+  activo                  Boolean               @default(true)
+  creado_por              Int?
+  created_at              DateTime              @default(now()) @db.DateTime(0)
+  updated_at              DateTime              @updatedAt @default(now()) @db.DateTime(0)
+  usuarios usuarios? @relation(fields: [creado_por], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_descuento_creado_por")
+  descuento_servicios     descuento_servicios[]
+  descuento_usos          descuento_usos[]
+
+  @@index([activo, fecha_inicio, fecha_fin], map: "idx_descuentos_vigencia")
+  @@index([creado_por], map: "idx_descuentos_creado_por")
+}
+
+model descuento_servicios {
+  descuento_id Int
+  servicio_id  Int
+  descuentos descuentos @relation(fields: [descuento_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ds_descuento")
+  servicios servicios @relation(fields: [servicio_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ds_servicio")
+
+  @@id([descuento_id, servicio_id])
+  @@index([servicio_id], map: "idx_ds_servicio")
+}
+
+/// Uso de un descuento (uno por solicitud). Se consume aunque la solicitud se cancele.
+model descuento_usos {
+  id               Int         @id @default(autoincrement())
+  descuento_id     Int
+  solicitud_id     Int         @unique(map: "uq_du_solicitud")
+  cliente_id       Int
+  codigo_aplicado  String?     @db.VarChar(40)
+  monto_descontado Decimal     @db.Decimal(10, 2)
+  created_at       DateTime    @default(now()) @db.DateTime(0)
+  descuentos descuentos @relation(fields: [descuento_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_du_descuento")
+  solicitudes solicitudes @relation(fields: [solicitud_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_du_solicitud")
+  usuarios usuarios @relation(fields: [cliente_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_du_cliente")
+
+  @@index([descuento_id, cliente_id], map: "idx_du_descuento_cliente")
+  @@index([cliente_id], map: "idx_du_cliente")
+}
+
+/// Adeudos de clientes (cancelación tardía de un servicio en efectivo). Se cobran en su próximo servicio.
+model cliente_adeudos {
+  id                  Int                    @id @default(autoincrement())
+  cliente_id          Int
+  solicitud_origen_id Int                    @unique(map: "uq_adeudo_origen")
+  motivo              cliente_adeudos_motivo
+  monto               Decimal                @db.Decimal(10, 2)
+  estado              cliente_adeudos_estado @default(PENDIENTE)
+  solicitud_cobro_id  Int?
+  trabajador_cobro_id Int?
+  cobrado_en          DateTime?              @db.DateTime(0)
+  /// Cuándo y con qué dinero se pagó la compensación del trabajador afectado (una sola vez).
+  compensacion_liberada_en DateTime?                                @db.DateTime(0)
+  compensacion_pagada_por  cliente_adeudos_compensacion_pagada_por?
+  created_at          DateTime               @default(now()) @db.DateTime(0)
+  updated_at          DateTime               @updatedAt @default(now()) @db.DateTime(0)
+  usuarios usuarios @relation(fields: [cliente_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_adeudo_cliente")
+  solicitud_origen solicitudes @relation("adeudo_origen", fields: [solicitud_origen_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_adeudo_origen")
+  solicitud_cobro solicitudes? @relation("adeudo_cobro", fields: [solicitud_cobro_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_adeudo_cobro")
+  trabajadores trabajadores? @relation(fields: [trabajador_cobro_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_adeudo_trabajador")
+
+  @@index([cliente_id, estado], map: "idx_adeudo_cliente_estado")
+  @@index([solicitud_cobro_id], map: "idx_adeudo_cobro")
+  @@index([trabajador_cobro_id], map: "idx_adeudo_trabajador")
+}
+
+/// Historial de estados del trabajador (activar/desactivar, bajas, reactivaciones).
+model trabajador_estado_historial {
+  id              Int                                          @id @default(autoincrement())
+  trabajador_id   Int
+  estado_anterior trabajador_estado_historial_estado_anterior?
+  estado_nuevo    trabajador_estado_historial_estado_nuevo
+  tipo            trabajador_estado_historial_tipo
+  actor           trabajador_estado_historial_actor
+  admin_id        Int?
+  motivo          String?                                      @db.VarChar(255)
+  created_at      DateTime                                     @default(now()) @db.DateTime(0)
+  trabajadores trabajadores @relation(fields: [trabajador_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_teh_trabajador")
+  usuarios usuarios? @relation(fields: [admin_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_teh_admin")
+
+  @@index([trabajador_id, created_at], map: "idx_teh_trabajador")
+  @@index([admin_id], map: "idx_teh_admin")
+}
+
+model especialidades {
+  id                        Int                         @id @default(autoincrement())
+  nombre                    String                      @unique(map: "uq_especialidades_nombre") @db.VarChar(100)
+  descripcion               String?                     @db.VarChar(255)
+  estado                    especialidades_estado       @default(ACTIVO)
+  created_at                DateTime                    @default(now()) @db.DateTime(0)
+  updated_at                DateTime                    @updatedAt @default(now()) @db.DateTime(0)
+  trabajador_especialidades trabajador_especialidades[]
+  servicio_especialidades   servicio_especialidades[]
+  extra_especialidades      extra_especialidades[]
+  solicitud_especialidades  solicitud_especialidades[]
+}
+
+model areas_limpieza {
+  id              Int                   @id @default(autoincrement())
+  nombre          String                @unique(map: "uq_areas_limpieza_nombre") @db.VarChar(60)
+  orden           Int                   @default(0) @db.UnsignedTinyInt
+  estado          areas_limpieza_estado @default(ACTIVO)
+  solicitud_areas solicitud_areas[]
+}
+
+model servicios_extra {
+  id                    Int                    @id @default(autoincrement())
+  nombre                String                 @unique(map: "uq_servicios_extra_nombre") @db.VarChar(100)
+  descripcion           String?                @db.VarChar(255)
+  precio                Decimal                @db.Decimal(10, 2)
+  /// Minutos que el extra agrega a la duración estimada.
+  duracion_estimada_min Int                    @default(0) @db.UnsignedSmallInt
+  estado                servicios_extra_estado @default(ACTIVO)
+  created_at            DateTime               @default(now()) @db.DateTime(0)
+  updated_at            DateTime               @updatedAt @default(now()) @db.DateTime(0)
+  extra_especialidades  extra_especialidades[]
+  solicitud_extras      solicitud_extras[]
+}
+
+/// Incrementos de precio y duración por unidad del inmueble, por servicio (1:1).
+model servicio_calculo {
+  servicio_id            Int      @id
+  precio_por_habitacion  Decimal  @default(0.00) @db.Decimal(10, 2)
+  precio_por_bano        Decimal  @default(0.00) @db.Decimal(10, 2)
+  precio_por_medio_bano  Decimal  @default(0.00) @db.Decimal(10, 2)
+  precio_por_piso        Decimal  @default(0.00) @db.Decimal(10, 2)
+  minutos_por_habitacion Int      @default(0) @db.UnsignedSmallInt
+  minutos_por_bano       Int      @default(0) @db.UnsignedSmallInt
+  minutos_por_medio_bano Int      @default(0) @db.UnsignedSmallInt
+  minutos_por_piso       Int      @default(0) @db.UnsignedSmallInt
+  updated_at             DateTime @updatedAt @default(now()) @db.DateTime(0)
+  servicios servicios @relation(fields: [servicio_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_calculo_servicio")
+}
+
+/// Multiplicadores por tipo de inmueble, por servicio. Sin fila = 1.00.
+model servicio_calculo_tipo_inmueble {
+  servicio_id            Int
+  tipo_inmueble          servicio_calculo_tipo_inmueble_tipo_inmueble
+  multiplicador_precio   Decimal                                      @default(1.00) @db.Decimal(5, 2)
+  multiplicador_duracion Decimal                                      @default(1.00) @db.Decimal(5, 2)
+  updated_at             DateTime                                     @updatedAt @default(now()) @db.DateTime(0)
+  servicios servicios @relation(fields: [servicio_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_calculo_tipo_servicio")
+
+  @@id([servicio_id, tipo_inmueble])
+}
+
+model reglas_cargo_cancelacion {
+  id          Int                               @id @default(autoincrement())
+  aplica_a    reglas_cargo_cancelacion_aplica_a
+  horas_antes Int                               @db.UnsignedSmallInt
+  tipo        reglas_cargo_cancelacion_tipo     @default(PORCENTAJE)
+  valor       Decimal                           @default(0.00) @db.Decimal(10, 2)
+  estado      reglas_cargo_cancelacion_estado   @default(ACTIVO)
+  created_at  DateTime                          @default(now()) @db.DateTime(0)
+  updated_at  DateTime                          @updatedAt @default(now()) @db.DateTime(0)
+
+  @@unique([aplica_a, horas_antes], map: "uq_regla_cargo")
+}
+
+/// Parámetros numéricos del negocio (PORCENTAJE_TRABAJADOR, PORCENTAJE_RETENCION_DEUDA, …).
+model parametros_negocio {
+  clave       String   @id @db.VarChar(60)
+  valor       Decimal  @db.Decimal(10, 2)
+  descripcion String   @db.VarChar(255)
+  updated_at  DateTime @updatedAt @default(now()) @db.DateTime(0)
+}
+
+model trabajador_especialidades {
+  trabajador_id   Int
+  especialidad_id Int
+  created_at      DateTime @default(now()) @db.DateTime(0)
+  trabajadores trabajadores @relation(fields: [trabajador_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_te_trabajador")
+  especialidades especialidades @relation(fields: [especialidad_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_te_especialidad")
+
+  @@id([trabajador_id, especialidad_id])
+  @@index([especialidad_id], map: "idx_te_especialidad")
+}
+
+model servicio_especialidades {
+  servicio_id     Int
+  especialidad_id Int
+  servicios servicios @relation(fields: [servicio_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_sesp_servicio")
+  especialidades especialidades @relation(fields: [especialidad_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_sesp_especialidad")
+
+  @@id([servicio_id, especialidad_id])
+  @@index([especialidad_id], map: "idx_sesp_especialidad")
+}
+
+model extra_especialidades {
+  extra_id        Int
+  especialidad_id Int
+  servicios_extra servicios_extra @relation(fields: [extra_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_eesp_extra")
+  especialidades especialidades @relation(fields: [especialidad_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_eesp_especialidad")
+
+  @@id([extra_id, especialidad_id])
+  @@index([especialidad_id], map: "idx_eesp_especialidad")
+}
+
+model solicitud_areas {
+  solicitud_id    Int
+  area_id         Int
+  /// Nombre del área al momento de pedir (no cambia si el catálogo se renombra).
+  nombre_aplicado String @db.VarChar(60)
+  solicitudes solicitudes @relation(fields: [solicitud_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_sa_solicitud")
+  areas_limpieza areas_limpieza @relation(fields: [area_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_sa_area")
+
+  @@id([solicitud_id, area_id])
+  @@index([area_id], map: "idx_sa_area")
+}
+
+model solicitud_extras {
+  solicitud_id          Int
+  extra_id              Int
+  nombre_aplicado       String  @db.VarChar(100)
+  precio_aplicado       Decimal @db.Decimal(10, 2)
+  duracion_aplicada_min Int     @default(0) @db.UnsignedSmallInt
+  solicitudes solicitudes @relation(fields: [solicitud_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_se_solicitud")
+  servicios_extra servicios_extra @relation(fields: [extra_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_se_extra")
+
+  @@id([solicitud_id, extra_id])
+  @@index([extra_id], map: "idx_se_extra")
+}
+
+model solicitud_especialidades {
+  solicitud_id    Int
+  especialidad_id Int
+  nombre_aplicado String @db.VarChar(100)
+  solicitudes solicitudes @relation(fields: [solicitud_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_soesp_solicitud")
+  especialidades especialidades @relation(fields: [especialidad_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_soesp_especialidad")
+
+  @@id([solicitud_id, especialidad_id])
+  @@index([especialidad_id], map: "idx_soesp_especialidad")
+}
+
+/// Participación de un trabajador en una solicitud (invitación o bolsa). Una fila por par.
+model solicitud_trabajadores {
+  id                    Int                                   @id @default(autoincrement())
+  solicitud_id          Int
+  trabajador_id         Int
+  origen                solicitud_trabajadores_origen
+  estado                solicitud_trabajadores_estado         @default(PENDIENTE)
+  motivo_cierre         solicitud_trabajadores_motivo_cierre?
+  created_at            DateTime                              @default(now()) @db.DateTime(0)
+  respondida_en         DateTime?                             @db.DateTime(0)
+  updated_at            DateTime                              @updatedAt @default(now()) @db.DateTime(0)
+  /// Columna GENERADA por la BD (VIRTUAL). Nunca escribirla.
+  aceptada_solicitud_id Int?                                  @unique(map: "uq_st_una_aceptada") @ignore
+  solicitudes solicitudes @relation(fields: [solicitud_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_st_solicitud")
+  trabajadores trabajadores @relation(fields: [trabajador_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_st_trabajador")
+
+  @@unique([solicitud_id, trabajador_id], map: "uq_st_solicitud_trabajador")
+  @@index([trabajador_id, estado], map: "idx_st_trabajador_estado")
+  @@index([solicitud_id, estado], map: "idx_st_solicitud_estado")
+}
+
+model solicitud_historial {
+  id              Int                                  @id @default(autoincrement())
+  solicitud_id    Int
+  estado_anterior solicitud_historial_estado_anterior?
+  estado_nuevo    solicitud_historial_estado_nuevo
+  actor           solicitud_historial_actor
+  /// usuarios.id si actor=CLIENTE/ADMIN, trabajadores.id si actor=TRABAJADOR, NULL si SISTEMA (sin FK).
+  actor_id        Int?
+  motivo          String?                              @db.VarChar(255)
+  created_at      DateTime                             @default(now()) @db.DateTime(0)
+  solicitudes solicitudes @relation(fields: [solicitud_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hist_solicitud")
+
+  @@index([solicitud_id, created_at], map: "idx_hist_solicitud")
+  @@index([actor, actor_id], map: "idx_hist_actor")
+}
+
+/// Resoluciones del admin (inmutables; manda la más reciente). NULL = esa resolución no cambia ese eje.
+model solicitud_resoluciones {
+  id                     Int                                        @id @default(autoincrement())
+  solicitud_id           Int
+  admin_id               Int?
+  resultado_servicio     solicitud_resoluciones_resultado_servicio?
+  resultado_pago         solicitud_resoluciones_resultado_pago?
+  motivo                 String                                     @db.VarChar(500)
+  created_at             DateTime                                   @default(now()) @db.DateTime(0)
+  solicitudes solicitudes @relation(fields: [solicitud_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_res_solicitud")
+  usuarios usuarios? @relation(fields: [admin_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_res_admin")
+  solicitud_reportes     solicitud_reportes[]
+  trabajador_movimientos trabajador_movimientos[]
+
+  @@index([solicitud_id, created_at], map: "idx_res_solicitud")
+  @@index([admin_id], map: "idx_res_admin")
+}
+
+/// Reportes e incidencias de un servicio (cliente o trabajador). Se conservan siempre.
+model solicitud_reportes {
+  id                   Int                              @id @default(autoincrement())
+  solicitud_id         Int
+  reportado_por        solicitud_reportes_reportado_por
+  /// usuarios.id si reportado_por = CLIENTE.
+  cliente_id           Int?
+  /// trabajadores.id si reportado_por = TRABAJADOR.
+  trabajador_id        Int?
+  tipo                 solicitud_reportes_tipo
+  descripcion          String?                          @db.Text
+  estado               solicitud_reportes_estado        @default(ABIERTO)
+  resolucion_id        Int?
+  created_at           DateTime                         @default(now()) @db.DateTime(0)
+  updated_at           DateTime                         @updatedAt @default(now()) @db.DateTime(0)
+  solicitudes solicitudes @relation(fields: [solicitud_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_rep_solicitud")
+  usuarios usuarios? @relation(fields: [cliente_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_rep_cliente")
+  trabajadores trabajadores? @relation(fields: [trabajador_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_rep_trabajador")
+  solicitud_resoluciones solicitud_resoluciones? @relation(fields: [resolucion_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_rep_resolucion")
+  evidencias_solicitud evidencias_solicitud[]
+
+  @@index([solicitud_id, estado], map: "idx_rep_solicitud_estado")
+  @@index([estado, created_at], map: "idx_rep_estado")
+  @@index([cliente_id], map: "idx_rep_cliente")
+  @@index([trabajador_id], map: "idx_rep_trabajador")
+  @@index([resolucion_id], map: "idx_rep_resolucion")
+}
+
+/// Libro de movimientos del trabajador. INMUTABLE: solo INSERT; correcciones con AJUSTE.
+model trabajador_movimientos {
+  id                             Int                           @id @default(autoincrement())
+  trabajador_id                  Int
+  cuenta                         trabajador_movimientos_cuenta
+  tipo                           trabajador_movimientos_tipo
+  /// Con signo: + aumenta la cuenta, − la disminuye.
+  monto                          Decimal                       @db.Decimal(10, 2)
+  /// Saldo de ESTA cuenta después del movimiento.
+  saldo_resultante               Decimal                       @db.Decimal(10, 2)
+  /// % usado para calcular el monto (85 en ganancias, 10 en retenciones…).
+  porcentaje_aplicado            Decimal?                      @db.Decimal(5, 2)
+  solicitud_id                   Int?
+  movimiento_relacionado_id      Int?
+  /// Resolución del admin que ordenó este movimiento (p. ej. un AJUSTE).
+  resolucion_id                  Int?
+  referencia_externa             String?                       @db.VarChar(100)
+  descripcion                    String?                       @db.VarChar(255)
+  clave_idempotencia             String                        @unique(map: "uq_mov_idempotencia") @db.VarChar(100)
+  created_at                     DateTime                      @default(now()) @db.DateTime(0)
+  /// Columna GENERADA por la BD (VIRTUAL): una vez por (tipo, solicitud, trabajador). Nunca escribirla.
+  clave_unica_solicitud          String?                       @unique(map: "uq_mov_una_vez_por_solicitud") @ignore @db.VarChar(80)
+  /// Columna GENERADA por la BD (VIRTUAL): cada movimiento se libera y se corrige una sola vez. Nunca escribirla.
+  clave_unica_referencia         String?                       @unique(map: "uq_mov_una_vez_por_movimiento") @ignore @db.VarChar(50)
+  trabajadores trabajadores @relation(fields: [trabajador_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_mov_trabajador")
+  solicitudes solicitudes? @relation(fields: [solicitud_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_mov_solicitud")
+  movimiento_relacionado trabajador_movimientos? @relation("movimiento_relacionado", fields: [movimiento_relacionado_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_mov_relacionado")
+  movimientos_que_lo_referencian trabajador_movimientos[]      @relation("movimiento_relacionado")
+  solicitud_resoluciones solicitud_resoluciones? @relation(fields: [resolucion_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_mov_resolucion")
+
+  @@index([trabajador_id, cuenta, id], map: "idx_mov_trabajador_cuenta")
+  @@index([solicitud_id], map: "idx_mov_solicitud")
+  @@index([movimiento_relacionado_id], map: "idx_mov_relacionado")
+  @@index([resolucion_id], map: "idx_mov_resolucion")
+}
+
+model notificaciones_trabajador {
+  id            Int                            @id @default(autoincrement())
+  trabajador_id Int
+  solicitud_id  Int?
+  tipo          notificaciones_trabajador_tipo
+  titulo        String                         @db.VarChar(100)
+  mensaje       String                         @db.VarChar(255)
+  leida_en      DateTime?                      @db.DateTime(0)
+  created_at    DateTime                       @default(now()) @db.DateTime(0)
+  trabajadores trabajadores @relation(fields: [trabajador_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_notif_trab_trabajador")
+  solicitudes solicitudes? @relation(fields: [solicitud_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_notif_trab_solicitud")
+
+  @@index([trabajador_id, leida_en], map: "idx_notif_trab_leida")
+  @@index([solicitud_id], map: "idx_notif_trab_solicitud")
+}
+
+enum solicitudes_inmueble_tipo_aplicado {
+  CASA
+  OFICINA
+  DEPARTAMENTO
+}
+
+enum solicitudes_modo_eleccion {
+  AUTOMATICA
+  MANUAL
+}
+
+enum solicitudes_metodo_pago {
+  EFECTIVO
+  TARJETA
+}
+
+enum solicitudes_realizado_via {
+  CLIENTE
+  EVIDENCIA_TRABAJADOR
+  AUTOMATICO
+  RESOLUCION_ADMIN
+}
+
+enum solicitudes_estado_pago {
+  PENDIENTE
+  PAGADO
+  ANULADO
+}
+
+enum solicitudes_pago_registrado_por {
+  CLIENTE
+  TRABAJADOR
+  SISTEMA
+  ADMIN
+}
+
+enum evidencias_solicitud_aportada_por {
+  CLIENTE
+  TRABAJADOR
+}
+
+enum solicitud_resoluciones_resultado_servicio {
+  REALIZADO
+  NO_REALIZADO
+}
+
+enum solicitud_resoluciones_resultado_pago {
+  PAGADO
+  NO_PAGADO
+}
+
+enum solicitud_reportes_reportado_por {
+  CLIENTE
+  TRABAJADOR
+}
+
+enum solicitud_reportes_tipo {
+  NO_SE_PUDO_COMPLETAR
+  INASISTENCIA
+  PROBLEMA_UBICACION
+  UBICACION_FALSA
+  PAGO_EN_DISPUTA
+  OTRO
+}
+
+enum solicitud_reportes_estado {
+  ABIERTO
+  EN_REVISION
+  RESUELTO
+}
+
+enum descuentos_tipo {
+  PORCENTAJE
+  MONTO_FIJO
+}
+
+enum cliente_adeudos_motivo {
+  CANCELACION_TARDIA
+}
+
+enum cliente_adeudos_estado {
+  PENDIENTE
+  EN_COBRO
+  COBRADO
+}
+
+enum cliente_adeudos_compensacion_pagada_por {
+  CLIENTE
+  PLATAFORMA
+}
+
+enum trabajador_estado_historial_estado_anterior {
+  ACTIVO
+  INACTIVO
+  BAJA
+}
+
+enum trabajador_estado_historial_estado_nuevo {
+  ACTIVO
+  INACTIVO
+  BAJA
+}
+
+enum trabajador_estado_historial_tipo {
+  ACTIVACION
+  DESACTIVACION
+  BAJA_VOLUNTARIA
+  BAJA_ADMINISTRATIVA
+  REACTIVACION
+}
+
+enum trabajador_estado_historial_actor {
+  TRABAJADOR
+  ADMIN
+  SISTEMA
+}
+
+enum servicio_calculo_tipo_inmueble_tipo_inmueble {
+  CASA
+  OFICINA
+  DEPARTAMENTO
+}
+
+enum solicitud_trabajadores_origen {
+  INVITACION
+  BOLSA
+}
+
+enum solicitud_trabajadores_estado {
+  PENDIENTE
+  ACEPTADA
+  RECHAZADA
+  CERRADA
+  CANCELADA
+}
+
+enum solicitud_trabajadores_motivo_cierre {
+  OTRO_TRABAJADOR_ACEPTO
+  CLIENTE_CANCELO
+  CAMBIO_A_AUTOMATICA
+  TRABAJADOR_OCUPADO
+  TRABAJADOR_CANCELO
+  TRABAJADOR_DADO_DE_BAJA
+}
+
+enum solicitud_historial_estado_anterior {
+  PENDIENTE
+  CONFIRMADO
+  EN_PROCESO
+  REALIZADO
+  CANCELADO
+  RECHAZADO
+}
+
+enum solicitud_historial_estado_nuevo {
+  PENDIENTE
+  CONFIRMADO
+  EN_PROCESO
+  REALIZADO
+  CANCELADO
+  RECHAZADO
+}
+
+enum solicitud_historial_actor {
+  CLIENTE
+  TRABAJADOR
+  ADMIN
+  SISTEMA
+}
+
+enum trabajadores_estado_verificacion {
+  PENDIENTE
+  VERIFICADO
+  RECHAZADO
+}
+
+enum trabajadores_baja_tipo {
+  VOLUNTARIA
+  ADMINISTRATIVA
+}
+
+enum documentos_cliente_estado {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum documentos_trabajador_estado {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum reglas_cargo_cancelacion_aplica_a {
+  CLIENTE
+  TRABAJADOR
+}
+
+enum reglas_cargo_cancelacion_tipo {
+  PORCENTAJE
+  MONTO_FIJO
+}
+
+enum reglas_cargo_cancelacion_estado {
+  ACTIVO
+  INACTIVO
+}
+
+enum trabajador_movimientos_cuenta {
+  POR_COBRAR
+  DISPONIBLE
+  DEUDA
+}
+
+enum trabajador_movimientos_tipo {
+  GANANCIA_SERVICIO
+  COMPENSACION_CANCELACION
+  LIBERACION_SALDO
+  COMISION_EFECTIVO
+  COMPENSACION_DESCUENTO
+  RETENCION_DEUDA
+  ABONO_DEUDA_CON_SALDO
+  CARGO_CANCELACION
+  COBRO_ADEUDO_CLIENTE
+  PAGO_DEUDA_EXTERNO
+  RETIRO
+  AJUSTE
+}
+
+enum notificaciones_trabajador_tipo {
+  INVITACION_NUEVA
+  SOLICITUD_CANCELADA_POR_CLIENTE
+  COMPENSACION_REGISTRADA
+  CARGO_CANCELACION
+  GANANCIA_REGISTRADA
+  COMISION_EFECTIVO_REGISTRADA
+  DOCUMENTOS_APROBADOS
+  DOCUMENTOS_RECHAZADOS
+  BAJA_REGISTRADA
+  CUENTA_REACTIVADA
+  COBRO_ADEUDO_REGISTRADO
+  COMPENSACION_LIBERADA
+  SUBIR_EVIDENCIA_SERVICIO
+  SERVICIO_CONFIRMADO_AUTOMATICAMENTE
+  PAGO_SERVICIO_LIBERADO
+  REPORTE_REGISTRADO
+  REPORTE_RESUELTO
+  AJUSTE_REGISTRADO
+  PAGO_EFECTIVO_PRESUMIDO
+}
+
+enum especialidades_estado {
+  ACTIVO
+  INACTIVO
+}
+
+enum areas_limpieza_estado {
+  ACTIVO
+  INACTIVO
+}
+
+enum servicios_extra_estado {
+  ACTIVO
+  INACTIVO
+}

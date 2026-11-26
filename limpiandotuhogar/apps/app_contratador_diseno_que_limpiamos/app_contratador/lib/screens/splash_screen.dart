@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../navigation/app_routes.dart';
+import '../services/session.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/wave_background.dart';
+import 'home_screen.dart';
 import 'welcome_screen.dart';
 
 /// Pantalla de carga con el logotipo y ondas en movimiento suave.
@@ -29,15 +31,27 @@ class _SplashScreenState extends State<SplashScreen>
   )..forward();
   Timer? _timer;
 
+  /// Restauración de la sesión guardada (token en almacenamiento seguro).
+  late final Future<bool> _restaurando;
+
   @override
   void initState() {
     super.initState();
+    // Empieza a restaurar la sesión mientras corre la animación.
+    _restaurando = Session.instance.restaurar();
     _timer = Timer(const Duration(seconds: 3), _goNext);
   }
 
-  void _goNext() {
+  Future<void> _goNext() async {
+    final conSesion = await _restaurando;
     if (!mounted) return;
-    AppRoutes.resetTo(context, const WelcomeScreen());
+    final usuario = Session.instance.user;
+    AppRoutes.resetTo(
+      context,
+      conSesion && usuario != null
+          ? HomeScreen(userName: usuario.nombre)
+          : const WelcomeScreen(),
+    );
   }
 
   @override

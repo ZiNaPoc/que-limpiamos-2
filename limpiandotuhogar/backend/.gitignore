@@ -1,4 +1,9 @@
+node_modules
+dist
+generated
 .env
 .env.*
 !.env.example
-node_modules
+backups
+.ensayo
+.local

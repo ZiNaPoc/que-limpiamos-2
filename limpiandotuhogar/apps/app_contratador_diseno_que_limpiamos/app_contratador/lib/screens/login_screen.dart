@@ -45,24 +45,20 @@ class _LoginScreenState extends State<LoginScreen> {
     final contrasena = passwordController.text;
 
     if (correo.isEmpty || contrasena.isEmpty) {
-      _aviso('Ingresa tu correo y contraseña');
+      _aviso('Ingresa tu correo o teléfono y tu contraseña');
       return;
     }
 
     setState(() => _loading = true);
 
     try {
-      final user = await AuthApi.login(correo: correo, password: contrasena);
+      final sesion =
+          await AuthApi.login(identificador: correo, password: contrasena);
       if (!mounted) return;
+      final user = sesion.usuario;
 
-      // Esta app es solo para clientes.
-      if (user.rol != 'CLIENTE') {
-        setState(() => _loading = false);
-        _aviso('Esta app es solo para clientes.');
-        return;
-      }
-
-      Session.instance.start(user);
+      await Session.instance.start(sesion);
+      if (!mounted) return;
       Haptics.success(context);
       // Va al inicio y quita Welcome y Login de la pila, para que el botón
       // atrás no regrese a ellas.
@@ -90,8 +86,8 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       children: [
         AppTextField(
-          label: 'Correo electrónico',
-          hint: '123@ejemplo.com',
+          label: 'Correo o teléfono',
+          hint: '123@ejemplo.com o 9981234567',
           controller: emailController,
           keyboardType: TextInputType.emailAddress,
           textInputAction: TextInputAction.next,

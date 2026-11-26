@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'navigation/navigator_key.dart';
 import 'screens/splash_screen.dart';
 import 'services/app_scope.dart';
 import 'services/app_state.dart';
@@ -16,6 +17,7 @@ class QueLimpiamosApp extends StatelessWidget {
       state: state,
       child: MaterialApp(
         title: '¿Qué limpiamos? Trabajadores',
+        navigatorKey: navigatorKey,
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
         // Limita el escalado de texto extremo para evitar desbordamientos

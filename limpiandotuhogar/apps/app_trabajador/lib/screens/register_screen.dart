@@ -34,6 +34,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _name = TextEditingController();
   final _phone = TextEditingController();
   final _email = TextEditingController();
+  final _address = TextEditingController();
   final _password = TextEditingController();
   final _confirm = TextEditingController();
 
@@ -47,7 +48,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
-    for (final c in [_name, _phone, _email, _password, _confirm]) {
+    for (final c in [_name, _phone, _email, _address, _password, _confirm]) {
       c.dispose();
     }
     super.dispose();
@@ -98,15 +99,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
     // 1) Crear la cuenta en el backend.
     final ApiUser user;
     try {
-      user = await AuthApi.signup(
+      final sesion = await AuthApi.registro(
         nombre: _name.text,
         correo: _email.text,
         telefono: _phone.text,
+        direccion: _address.text,
         password: _password.text,
-        rol: 'TRABAJADOR',
       );
       if (!mounted) return;
-      Session.instance.start(user);
+      user = sesion.usuario;
+      await Session.instance.start(sesion);
+      if (!mounted) return;
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -125,7 +128,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       name: _name.text,
       phone: _phone.text,
       email: _email.text,
-      password: _password.text,
+      // La contraseña vive solo en el backend (bcrypt): no se guarda en el teléfono.
+      password: '',
       ineFrontPath: _ineFront ?? '',
       ineBackPath: _ineBack ?? '',
       specialties: _specialties.toList(),
@@ -292,6 +296,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
           keyboardType: TextInputType.emailAddress,
           textInputAction: TextInputAction.next,
           validator: Validators.email,
+        ),
+        const SizedBox(height: 14),
+        AppTextField(
+          label: 'Dirección',
+          hint: 'Calle, número y colonia',
+          controller: _address,
+          keyboardType: TextInputType.streetAddress,
+          textCapitalization: TextCapitalization.sentences,
+          textInputAction: TextInputAction.next,
+          autofillHints: const [AutofillHints.fullStreetAddress],
+          validator: (v) => (v == null || v.trim().length < 5)
+              ? 'Escribe tu dirección (mínimo 5 caracteres).'
+              : null,
         ),
         const SizedBox(height: 14),
         AppTextField(

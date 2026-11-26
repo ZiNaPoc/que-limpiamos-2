@@ -1,9 +1,13 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:app_contratador/data/service_catalog.dart';
 import 'package:app_contratador/main.dart';
 
 void main() {
+  // La sesión se restaura desde el almacenamiento seguro (Fase 2): en pruebas se simula vacío.
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
   testWidgets('El splash muestra la marca y pasa a la bienvenida',
       (WidgetTester tester) async {
     await tester.pumpWidget(const MainApp());

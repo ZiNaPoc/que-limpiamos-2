@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { alExpirarLaSesion, cerrarSesionEnServidor, consultarSesion } from "./data/api";
 import type { Sesion } from "./data/tipos";
 import { BarraDeNavegacion } from "./components/BarraDeNavegacion";
 import { PiePagina } from "./components/PiePagina";
@@ -23,6 +24,39 @@ export default function App() {
   );
   // Pantalla visible ahora: landing, login o dashboard.
   const [paginaActual, setPaginaActual] = useState<PaginaActual>("landing");
+
+  // Al abrir, el servidor decide si la sesión sigue viva (la cookie es la que vale, no sessionStorage).
+  useEffect(() => {
+    let vigente = true;
+    consultarSesion()
+      .then((usuario) => {
+        if (!vigente) return;
+        if (usuario) {
+          guardarSesion(usuario);
+          setSesionActual(usuario);
+        } else {
+          borrarSesion();
+          setSesionActual(null);
+        }
+      })
+      .catch(() => {
+        // Sin conexión con el servidor: se conserva lo guardado; las peticiones del panel avisarán.
+      });
+    return () => {
+      vigente = false;
+    };
+  }, []);
+
+  // Si cualquier petición responde 401 (cookie vencida o inválida), se vuelve al login.
+  useEffect(
+    () =>
+      alExpirarLaSesion(() => {
+        borrarSesion();
+        setSesionActual(null);
+        setPaginaActual("login");
+      }),
+    [],
+  );
 
   // Vuelve a la landing y baja a la sección pedida (por su id).
   // El setTimeout de 0 espera a que la landing ya esté dibujada para poder encontrar la sección.
@@ -56,9 +90,9 @@ export default function App() {
     window.scrollTo({ top: 0 });
   }
 
-  // Cierra sesión y regresa al inicio.
-  // lo ideal es esperar la respuesta del logout y, pase lo que pase, cerrar la sesión en la web.
-  function handleCerrarSesion() {
+  // Cierra sesión: primero en el servidor (borra la cookie) y, pase lo que pase, también en la web.
+  async function handleCerrarSesion() {
+    await cerrarSesionEnServidor();
     borrarSesion();
     setSesionActual(null);
     irALaLanding("inicio");

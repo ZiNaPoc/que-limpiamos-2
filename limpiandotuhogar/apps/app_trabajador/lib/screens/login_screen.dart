@@ -5,6 +5,7 @@ import '../navigation/app_routes.dart';
 import '../services/api_client.dart';
 import '../services/app_scope.dart';
 import '../services/haptics.dart';
+import '../services/modo_demo.dart';
 import '../services/session.dart';
 import '../services/validators.dart';
 import '../theme/app_colors.dart';
@@ -54,23 +55,15 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
 
     try {
-      final user = await AuthApi.login(
-        correo: _email.text.trim(),
+      final sesion = await AuthApi.login(
+        identificador: _email.text.trim(),
         password: _password.text,
       );
       if (!mounted) return;
+      final user = sesion.usuario;
 
-      // No lanzamos ApiException a mano: su constructor puede exigir
-      // statusCode y eso rompía la compilación.
-      if (user.rol != 'TRABAJADOR') {
-        setState(() {
-          _loading = false;
-          _error = 'Esta app es solo para trabajadores.';
-        });
-        return;
-      }
-
-      Session.instance.start(user);
+      await Session.instance.start(sesion);
+      if (!mounted) return;
       AppScope.read(context).loginRemote(
         workerId: user.id,
         name: user.nombre,
@@ -194,9 +187,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                 ),
                 const SizedBox(height: 18),
-                // Solo sirve si esta cuenta existe en la base de datos.
-                // Si ya no la necesitas, borra este AppCard y _fillDemo.
-                AppCard(
+                // Solo en modo demo (--dart-define=MODO_DEMO=true): las
+                // compilaciones normales no muestran credenciales de prueba.
+                if (modoDemo) AppCard(
                   color: AppColors.ice,
                   shadow: false,
                   onTap: _fillDemo,

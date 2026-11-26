@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useAhora } from "../hooks/useAhora";
-import { nombreDelCliente, useClientes } from "../data/ClientesContext";
+import { useClientes } from "../data/ClientesContext";
 import { useSolicitudes } from "../hooks/useSolicitudes";
 import { useTrabajadores } from "../data/TrabajadoresContext";
-import { buscarTrabajador } from "../data/trabajadores";
-import type { Navegar, Sesion, Solicitud } from "../data/tipos";
+import type { Navegar, Sesion, SolicitudListado } from "../data/tipos";
 import { FILTROS_ACTIVAS, FILTROS_ENVIADAS_DE_HOY, obtenerPendientesDeAsignarHoy, obtenerServiciosEnProcesoHoy, obtenerSolicitudesActivas, obtenerSolicitudesRecientes } from "../utils/consultasDeSolicitudes";
 import { calcularEstadoDelTrabajador } from "../utils/consultasDeTrabajadores";
 import { contarClientesPorVerificacion } from "../utils/documentosDeClientes";
@@ -50,7 +49,7 @@ function useContadorAnimado(valorFinal: number, duracionEnMilisegundos = 700) {
 }
 
 type TarjetaPendientesDeAsignarProps = {
-  solicitudes: Solicitud[];
+  solicitudes: SolicitudListado[];
   onVerTodas: () => void;
   onAbrirSolicitud: (idDeSolicitud: string) => void;
 };
@@ -59,7 +58,6 @@ type TarjetaPendientesDeAsignarProps = {
 // DATOS: la lista ya filtrada que le pasa InicioPage (obtenerPendientesDeAsignarHoy). Muestra el total y las primeras 3, con cliente y hora.
 // BOTONES: una solicitud abre su detalle; el botón principal abre Solicitudes con el filtro "Solicitud enviada + hoy".
 function TarjetaPendientesDeAsignarHoy({ solicitudes, onVerTodas, onAbrirSolicitud }: TarjetaPendientesDeAsignarProps) {
-  const { clientes } = useClientes();
   const total = solicitudes.length;
   const totalMostrado = useContadorAnimado(total);
   const vistaPrevia = solicitudes.slice(0, CANTIDAD_DE_PENDIENTES_EN_VISTA_PREVIA);
@@ -89,7 +87,7 @@ function TarjetaPendientesDeAsignarHoy({ solicitudes, onVerTodas, onAbrirSolicit
               <li key={solicitud.id}>
                 <button onClick={() => onAbrirSolicitud(solicitud.id)} className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl bg-white/10 px-4 py-3 text-left text-sm transition duration-300 hover:bg-white/20">
                   <span className="min-w-0 truncate">
-                    <span className="font-bold text-moss">{solicitud.id}</span> · {nombreDelCliente(clientes, solicitud.idDelCliente)}
+                    <span className="font-bold text-moss">{solicitud.id}</span> · {solicitud.cliente.nombre}
                   </span>
                   <span className="shrink-0 text-xs text-sky">{formatearHora(solicitud.fechaProgramada)}</span>
                 </button>
@@ -108,7 +106,7 @@ function TarjetaPendientesDeAsignarHoy({ solicitudes, onVerTodas, onAbrirSolicit
 }
 
 type TarjetaServiciosEnProcesoProps = {
-  solicitudes: Solicitud[];
+  solicitudes: SolicitudListado[];
   onAbrirSolicitud: (idDeSolicitud: string) => void;
 };
 
@@ -116,7 +114,6 @@ type TarjetaServiciosEnProcesoProps = {
 // DATOS: la lista que le pasa InicioPage (obtenerServiciosEnProcesoHoy) y el colaborador de cada una. Muestra las primeras 4.
 // Desde aquí el administrador abre la solicitud y la marca como finalizada cuando termina el servicio.
 function TarjetaServiciosEnProceso({ solicitudes, onAbrirSolicitud }: TarjetaServiciosEnProcesoProps) {
-  const { trabajadores } = useTrabajadores();
   const vistaPrevia = solicitudes.slice(0, CANTIDAD_DE_SERVICIOS_EN_VISTA_PREVIA);
   return (
     <section aria-labelledby="titulo-de-servicios-en-proceso" className="leaf-r surface h-full p-7 sm:p-9">
@@ -132,7 +129,7 @@ function TarjetaServiciosEnProceso({ solicitudes, onAbrirSolicitud }: TarjetaSer
 
       <ul className="mt-5 space-y-2">
         {vistaPrevia.map((solicitud) => {
-          const trabajador = buscarTrabajador(trabajadores, solicitud.idDelTrabajador);
+          const trabajador = solicitud.trabajador;
           return (
             <li key={solicitud.id}>
               <button onClick={() => onAbrirSolicitud(solicitud.id)} className="group flex w-full cursor-pointer items-center gap-4 rounded-2xl bg-beige px-4 py-3 text-left transition duration-300 hover:bg-sky/40">
@@ -188,7 +185,7 @@ function FranjaDelEquipo({ onVerTrabajadores }: { onVerTrabajadores: () => void 
 }
 
 type ListaDeSolicitudesRecientesProps = {
-  solicitudes: Solicitud[];
+  solicitudes: SolicitudListado[];
   ahora: Date;
   onAbrirSolicitud: (idDeSolicitud: string) => void;
   onVerTodas: () => void;
@@ -197,7 +194,6 @@ type ListaDeSolicitudesRecientesProps = {
 // Las últimas solicitudes que ingresaron, de la más nueva a la más vieja (sin importar para qué fecha son).
 // DATOS: la lista que le pasa InicioPage (5 solicitudes) y el nombre del cliente de cada una. Al hacer clic se abre el detalle.
 function ListaDeSolicitudesRecientes({ solicitudes, ahora, onAbrirSolicitud, onVerTodas }: ListaDeSolicitudesRecientesProps) {
-  const { clientes } = useClientes();
   const claveDeHoy = obtenerClaveDeFecha(ahora);
   return (
     <section aria-labelledby="titulo-de-solicitudes-recientes">
@@ -223,14 +219,14 @@ function ListaDeSolicitudesRecientes({ solicitudes, ahora, onAbrirSolicitud, onV
               <span className="w-fit rounded-full bg-navy px-3 py-1 text-xs font-bold text-white">{solicitud.id}</span>
               <span className="min-w-0">
                 <span className="block truncate text-sm font-bold text-navy">
-                  {nombreDelCliente(clientes, solicitud.idDelCliente)} · {solicitud.servicio}
+                  {solicitud.cliente.nombre} · {solicitud.servicio}
                 </span>
                 <span className="block truncate text-xs text-slate">{solicitud.direccion}</span>
               </span>
               <span className="flex flex-col gap-1 text-xs">
                 <span className="flex items-center gap-1.5 text-slate">
                   <Icono nombre="reloj" className="h-3.5 w-3.5" />
-                  Ingresó {describirTiempoDesdeCreacion(solicitud.fechaDeCreacion, ahora)}
+                  Ingresó {describirTiempoDesdeCreacion(solicitud.fechaCreacion, ahora)}
                 </span>
                 <span className="flex items-center gap-1.5 font-bold text-navy">
                   <Icono nombre="calendario" className="h-3.5 w-3.5" />
