@@ -1,34 +1,60 @@
 {
-  "name": "backend",
+  "name": "que-limpiamos-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "tsx watch src/server.ts"
-  },
-  "prisma": {
-    "schema": "src/prisma/schema.prisma"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "private": true,
+  "description": "API de Que Limpiamos (cliente, trabajador y administrador)",
   "type": "commonjs",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate",
+    "db:probar": "tsx src/scripts/probar-db.ts",
+    "db:respaldo": "tsx src/scripts/respaldo-db.ts",
+    "db:verificar-002": "tsx src/scripts/verificar-002.ts",
+    "db:ensayo-002": "tsx src/scripts/ensayo-002.ts",
+    "test": "tsx --test --test-concurrency=1 \"test/**/*.test.ts\"",
+    "db:verificar-003": "tsx src/scripts/verificar-003.ts",
+    "db:ensayo-003": "tsx src/scripts/ensayo-003.ts",
+    "demo:local": "tsx src/scripts/demo-local.ts",
+    "demo:limpiar": "tsx src/scripts/demo-local.ts --limpiar",
+    "bd:local": "tsx src/scripts/bd-local.ts",
+    "prisma:local": "tsx src/scripts/prisma-local.ts",
+    "permisos:asignar-propietario": "tsx src/scripts/asignar-propietario.ts",
+    "servidor:local": "tsx src/scripts/servidor-local.ts",
+    "datos:local": "tsx src/scripts/datos-prueba-local.ts",
+    "solicitudes:local": "tsx src/scripts/solicitudes-prueba-local.ts",
+    "bd:ensayo-004": "tsx src/scripts/ensayo-004.ts",
+    "nube:demo": "tsx src/scripts/nube-demo.ts --nube",
+    "datos:nube": "tsx src/scripts/datos-prueba-local.ts --nube"
+  },
+  "license": "ISC",
   "dependencies": {
     "@prisma/adapter-mariadb": "^7.10.1",
     "@prisma/client": "^7.10.1",
-    "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
     "express": "^5.3.0",
-    "mariadb": "^3.5.5"
+    "express-rate-limit": "^8.7.5",
+    "jsonwebtoken": "^9.0.3",
+    "mariadb": "^3.5.5",
+    "multer": "^2.5.0",
+    "prisma": "^7.10.1",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.3.0",
     "@types/node": "^26.6.6",
-    "prisma": "^7.10.1",
-    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
 }

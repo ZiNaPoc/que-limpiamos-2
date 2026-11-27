@@ -19,6 +19,10 @@ dependencies:
   cupertino_icons: ^1.0.8
   http: ^1.6.0
   provider: ^6.1.5+1
+  # Guarda el token de sesión en Keychain/Keystore (no en texto plano).
+  flutter_secure_storage: ^10.3.4
+  # Fotos de evidencia para los reportes (cámara o galería). Igual que la app del trabajador.
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_test:

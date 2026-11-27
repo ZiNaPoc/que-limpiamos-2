@@ -96,6 +96,9 @@ class RequestCard extends StatelessWidget {
               StatusBadge(request: r),
             ],
           ),
+          // Se distingue a simple vista una solicitud REAL de una de demostración (doc 25 v2).
+          Text(r.id.startsWith('api-') ? 'Solicitud real' : 'Demostración',
+              style: AppText.caption.copyWith(color: r.id.startsWith('api-') ? AppColors.primaryStrong : AppColors.inkMuted)),
           const SizedBox(height: 4),
           Text(
             [...r.space.areas, if (r.extraService != null) r.extraService!]

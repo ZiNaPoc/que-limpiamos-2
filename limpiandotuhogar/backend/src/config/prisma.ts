@@ -1,38 +1,30 @@
-import "dotenv/config";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "../../generated/prisma/client";
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`Falta la variable ${name}`);
-  return value;
-}
-
-const rawPort = process.env.DATABASE_PORT;
-const port = rawPort ? Number(rawPort) : 4000;
-if (!Number.isInteger(port) || port <= 0) {
-  throw new Error(`DATABASE_PORT inválido: ${rawPort}`);
-}
+import { env } from "./env";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-function createPrismaClient() {
+function crearPrismaClient() {
   const adapter = new PrismaMariaDb({
-    host: requireEnv("DATABASE_HOST"),
-    port,
-    user: requireEnv("DATABASE_USER"),
-    password: requireEnv("DATABASE_PASSWORD"),
-    database: requireEnv("DATABASE_NAME"),
+    host: env.db.host,
+    port: env.db.port,
+    user: env.db.user,
+    password: env.db.password,
+    database: env.db.name,
     connectionLimit: 5,
     connectTimeout: 10_000,
-    ssl: { minVersion: "TLSv1.2", rejectUnauthorized: true },
+    // TLS siempre, salvo la BD LOCAL de desarrollo/pruebas (env.db.tls solo es false en localhost).
+    ...(env.db.tls ? { ssl: { minVersion: "TLSv1.2", rejectUnauthorized: true } } : {}),
   });
 
-  return new PrismaClient({ adapter });
+  // TiDB Cloud está lejos (latencia por consulta): las transacciones interactivas del ciclo (aceptar, resolver)
+  // con su bloqueo FOR UPDATE pueden pasar de los 5 s por defecto de Prisma. Se amplía el margen.
+  return new PrismaClient({ adapter, transactionOptions: { maxWait: 10_000, timeout: 20_000 } });
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+export const prisma = globalForPrisma.prisma ?? crearPrismaClient();
 
-if (process.env.NODE_ENV !== "production") {
+// En desarrollo, `tsx watch` recarga módulos: se reutiliza el mismo cliente.
+if (!env.esProduccion) {
   globalForPrisma.prisma = prisma;
 }

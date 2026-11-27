@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../navigation/app_routes.dart';
 import '../services/app_scope.dart';
+import '../services/modo_demo.dart';
+import '../services/session.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
@@ -37,9 +39,20 @@ class _SplashScreenState extends State<SplashScreen>
     _timer = Timer(const Duration(milliseconds: 2300), _goNext);
   }
 
-  void _goNext() {
+  Future<void> _goNext() async {
     if (!mounted) return;
-    final loggedIn = AppScope.read(context).isLoggedIn;
+    final state = AppScope.read(context);
+    var loggedIn = state.isLoggedIn;
+    if (loggedIn && state.workerId != null) {
+      // Cuenta del backend: el token guardado debe seguir siendo válido.
+      loggedIn = await Session.instance.restaurar();
+      if (!loggedIn) state.logout();
+    } else if (loggedIn && !modoDemo) {
+      // Sesión solo local (datos de demostración) fuera del modo demo: no vale.
+      state.logout();
+      loggedIn = false;
+    }
+    if (!mounted) return;
     AppRoutes.resetTo(
         context, loggedIn ? const MainShell() : const WelcomeScreen());
   }

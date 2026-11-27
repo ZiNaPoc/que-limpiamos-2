@@ -1,112 +1,60 @@
-import { useState, useEffect, useCallback, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 
-import { apiFetch } from "./api";
+import { useActualizacionPeriodica } from "../hooks/useActualizacionPeriodica";
+import { usePermisos } from "./permisos";
 import { SolicitudesContext } from "./SolicitudesContext";
+import { consultarSolicitudes, ETIQUETA_DE_ESTADO, FILTROS_DE_SUPERVISION_VACIOS, type SolicitudEnLista } from "./solicitudesAdmin";
 
-import type { ResultadoDeOperacion, SolicitudListado } from "./tipos";
+import type { EstadoDeSolicitud, SolicitudListado } from "./tipos";
 
-type RespuestaDeSolicitudes = {
-  total: number;
-  solicitudes: SolicitudListado[];
-};
+// Cada 20 s, solo con la página visible (docs/backend/25 v2).
+export const INTERVALO_DE_ACTUALIZACION_MS = 20_000;
+
+// Formato que ya usaban Inicio y Colaboradores (estados en español).
+function aListado(s: SolicitudEnLista): SolicitudListado {
+  return {
+    id: String(s.id),
+    idCliente: String(s.cliente.id),
+    idServicio: "",
+    idTrabajador: s.trabajador ? String(s.trabajador.id) : null,
+    servicio: s.servicio,
+    direccion: s.direccion,
+    estado: ETIQUETA_DE_ESTADO[s.estado] as EstadoDeSolicitud,
+    fechaCreacion: s.creadaEn,
+    fechaProgramada: s.fechaProgramada,
+    precioReferencia: s.precio,
+    cliente: { id: String(s.cliente.id), nombre: s.cliente.nombre, correo: s.cliente.correo, telefono: s.cliente.telefono },
+    trabajador: s.trabajador ? { id: String(s.trabajador.id), nombre: s.trabajador.nombre, estado: s.trabajador.estado === "ACTIVO" ? "ACTIVO" : "INACTIVO" } : null,
+  };
+}
 
 export function SolicitudesProvider({ children }: { children: ReactNode }) {
+  const { tiene, cargando: cargandoPermisos } = usePermisos();
+  const puedeVer = tiene("SUPERVISAR_SOLICITUDES");
   const [solicitudes, setSolicitudes] = useState<SolicitudListado[]>([]);
-  const [cargando, setCargando] = useState(true);
+  const [cargandoDatos, setCargando] = useState(true);
+  // Sin el permiso no se consulta nada: no hay nada que esperar.
+  const cargando = puedeVer ? cargandoDatos : cargandoPermisos;
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  const [actualizadoEn, setActualizadoEn] = useState<string | null>(null);
 
   const recargarSolicitudes = useCallback(async () => {
-    setCargando(true);
-    setErrorCarga(null);
-
+    if (!puedeVer) return;
     try {
-      const datos = await apiFetch<RespuestaDeSolicitudes>(
-        "/api/admin/solicitudes",
-      );
-
-      setSolicitudes(datos.solicitudes);
+      const datos = await consultarSolicitudes(FILTROS_DE_SUPERVISION_VACIOS, 100);
+      setSolicitudes(datos.solicitudes.map(aListado));
+      setActualizadoEn(datos.actualizadoEn);
+      setErrorCarga(null);
     } catch (error) {
-      setErrorCarga(
-        error instanceof Error
-          ? error.message
-          : "No se pudieron cargar las solicitudes",
-      );
+      setErrorCarga(error instanceof Error ? error.message : "No se pudieron cargar las solicitudes");
     } finally {
       setCargando(false);
     }
-  }, []);
+  }, [puedeVer]);
 
-  useEffect(() => {
-    let activo = true;
-    const cargar = async () => {
-      if (!activo) return;
-      await recargarSolicitudes();
-    };
-    void cargar();
-    return () => {
-      activo = false;
-    };
-  }, [recargarSolicitudes]);
-
-  const cambiarTrabajadorAsignado = useCallback(
-    async (
-      idSolicitud: string,
-      idTrabajadorNuevo: string | null,
-    ): Promise<ResultadoDeOperacion> => {
-      try {
-        let trabajadorId: number | null = null;
-
-        if (idTrabajadorNuevo !== null) {
-          trabajadorId = Number(idTrabajadorNuevo);
-
-          if (!Number.isSafeInteger(trabajadorId) || trabajadorId <= 0) {
-            return {
-              exito: false,
-              mensaje: "El ID del trabajador no es valido",
-            };
-          }
-        }
-
-        await apiFetch(
-          `/api/admin/solicitudes/${encodeURIComponent(idSolicitud)}/asignacion`,
-          {
-            method: "PATCH",
-            body: JSON.stringify({
-              trabajadorId,
-            }),
-          },
-        );
-
-        await recargarSolicitudes();
-
-        return {
-          exito: true,
-          mensaje: "Trabajador actualizado correctamente",
-        };
-      } catch (error) {
-        return {
-          exito: false,
-          mensaje:
-            error instanceof Error
-              ? error.message
-              : "No se pudo actualizar el trabajador",
-        };
-      }
-    },
-    [recargarSolicitudes],
-  );
+  useActualizacionPeriodica(recargarSolicitudes, INTERVALO_DE_ACTUALIZACION_MS, puedeVer && !cargandoPermisos, true);
 
   return (
-    <SolicitudesContext.Provider
-      value={{
-        solicitudes,
-        cargando,
-        errorCarga,
-        recargarSolicitudes,
-        cambiarTrabajadorAsignado,
-      }}
-    >
-      {children}
-    </SolicitudesContext.Provider>
+    <SolicitudesContext.Provider value={{ solicitudes, cargando, errorCarga, actualizadoEn, puedeVer, recargarSolicitudes }}>{children}</SolicitudesContext.Provider>
   );
 }

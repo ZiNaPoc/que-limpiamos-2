@@ -47,7 +47,7 @@ class _QuoteScreenState extends State<QuoteScreen> {
     setState(() => _enviando = true);
     try {
       // Guarda el inmueble y la solicitud en la base de datos.
-      await SolicitudApi.crear(request, clienteId: user.id);
+      await SolicitudApi.crear(request);
       if (!mounted) return;
       Haptics.success(context);
       _mostrar('¡Solicitud confirmada!');

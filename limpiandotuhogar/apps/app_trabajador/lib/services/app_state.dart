@@ -9,6 +9,7 @@ import '../models/worker_profile.dart';
 import 'api_client.dart';
 import 'formatters.dart';
 import 'requests_api.dart';
+import 'resenas_reportes_api.dart';
 import 'storage_service.dart';
 
 /// Resultado de validar si una acción está permitida. Cuando no lo está,
@@ -28,9 +29,12 @@ enum SimulatedResponse { acepta, contraoferta, rechaza }
 
 /// Estado global de la aplicación del trabajador.
 ///
-/// Las solicitudes nuevas y la aceptación se sincronizan con el backend
-/// (polling cada 3 s). Todo lo demás (negociación, chat, iniciar/finalizar,
-/// calificar) sigue siendo local y se guarda con [StorageService].
+/// Hay dos tipos de solicitudes:
+///  - REALES (id `api-…`, docs/backend/25 v2): vienen del backend (consulta cada 3 s) y TODAS sus
+///    acciones van al servidor: aceptar, rechazar, iniciar, terminar con fotos y cancelar. Sin
+///    negociación ni chat; la calificación y los reportes se hacen en «Mis servicios».
+///  - De DEMOSTRACIÓN (datos simulados, «Restablecer demostración»): siguen siendo locales y se
+///    guardan con [StorageService].
 class AppState extends ChangeNotifier {
   AppState({StorageService? storage, DateTime Function()? clock})
       : _storage = storage,
@@ -319,6 +323,10 @@ class AppState extends ChangeNotifier {
       debugPrint('[sync] disponibles: ${list.length}');
       if (_disposed || _workerId != wid) return;
       _applyDisponibles(list);
+      // Estado de las asignadas (el cliente pudo cancelar o confirmar; D54 pudo cerrarla).
+      final asignadas = await RequestsApi.asignadas();
+      if (_disposed || _workerId != wid) return;
+      _applyAsignadas(asignadas);
     } catch (e, st) {
       // Sin conexión un momento: se reintenta en el siguiente ciclo.
       debugPrint('[sync] ERROR: $e\n$st');
@@ -326,6 +334,9 @@ class AppState extends ChangeNotifier {
       _syncing = false;
     }
   }
+
+  /// ¿Es una solicitud REAL del backend (no de demostración)?
+  bool isRemote(ServiceRequest r) => _isRemote(r);
 
   void _applyDisponibles(List<RemoteRequest> list) {
     var changed = false;
@@ -366,27 +377,61 @@ class AppState extends ChangeNotifier {
     if (changed) _commit();
   }
 
+  /// Estado local que corresponde al estado del servidor de una solicitud ASIGNADA.
+  RequestStatus _estadoLocal(RemoteRequest r) => switch (r.estado) {
+        'EN_PROCESO' => r.trabajadorTerminoEn != null ? RequestStatus.finalizada : RequestStatus.enCurso,
+        'REALIZADO' => RequestStatus.finalizada,
+        'CANCELADO' || 'RECHAZADO' => RequestStatus.cancelada,
+        _ => RequestStatus.confirmada,
+      };
+
+  /// Pone al día las solicitudes reales asignadas con lo que dice el servidor.
+  void _applyAsignadas(List<RemoteRequest> list) {
+    var changed = false;
+    final vistas = <String>{};
+    for (final remote in list) {
+      final id = '$_remotePrefix${remote.id}';
+      vistas.add(id);
+      final local = byId(id);
+      final estado = _estadoLocal(remote);
+      if (local == null) {
+        final req = _fromRemote(remote, estado);
+        req.agreedPrice = remote.total;
+        _requests = [..._requests, req];
+        changed = true;
+      } else if (local.status != estado) {
+        local.status = estado;
+        local.agreedPrice ??= remote.total;
+        local.statusReason = switch (remote.estado) {
+          'CANCELADO' => 'La solicitud se canceló.',
+          'REALIZADO' => 'Servicio realizado.',
+          'EN_PROCESO' when remote.trabajadorTerminoEn != null => 'Marcaste terminado: falta la confirmación del cliente.',
+          _ => null,
+        };
+        changed = true;
+      }
+    }
+    // Asignada aquí pero ya no en el servidor (p. ej. la cancelaste y volvió a la bolsa).
+    for (final r in _requests) {
+      if (_isRemote(r) && r.status.isScheduled && !vistas.contains(r.id)) {
+        r.status = RequestStatus.cancelada;
+        r.statusReason = 'Ya no está asignada a ti.';
+        changed = true;
+      }
+    }
+    if (changed) _commit();
+  }
+
   /// Recupera las solicitudes que este trabajador ya aceptó en el backend
   /// (por ejemplo, al iniciar sesión en otro dispositivo).
   Future<void> _restoreAccepted() async {
     final wid = _workerId;
     if (wid == null) return;
     try {
-      final list = await RequestsApi.deTrabajador(wid);
-      debugPrint('[sync] aceptadas por mí: ${list.length}');
+      final list = await RequestsApi.asignadas();
+      debugPrint('[sync] asignadas: ${list.length}');
       if (_disposed || _workerId != wid) return;
-      final nuevas = <ServiceRequest>[];
-      for (final remote in list) {
-        if (remote.trabajadorId != wid) continue;
-        if (byId('$_remotePrefix${remote.id}') != null) continue;
-        final req = _fromRemote(remote, RequestStatus.confirmada);
-        req.agreedPrice = remote.total;
-        nuevas.add(req);
-      }
-      if (nuevas.isNotEmpty) {
-        _requests = [..._requests, ...nuevas];
-        _commit();
-      }
+      _applyAsignadas(list);
     } catch (e, st) {
       // No es crítico, pero se registra para depurar.
       debugPrint('[sync] restoreAccepted ERROR: $e\n$st');
@@ -400,10 +445,10 @@ class AppState extends ChangeNotifier {
     final last = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
 
     final client = ClientInfo(
-      id: 'c-${r.clienteId}',
+      id: 'c-api-${r.id}',
       firstName: first,
       lastName: last,
-      phone: r.clienteTelefono ?? '',
+      phone: '', // el teléfono del cliente no se comparte
       email: '',
       ineVerified: false,
       rating: 5.0,
@@ -427,31 +472,32 @@ class AppState extends ChangeNotifier {
       fullBaths: r.casa.banos,
       halfBaths: r.casa.mediosBanos,
       floors: r.casa.pisos,
-      approxM2: r.metros2,
+      approxM2: 0,
       areas: r.areas,
-      photos: const [], // las fotos todavía no viajan por el backend
+      photos: const [],
       notes: r.notas,
-      zone: r.zona.isEmpty ? 'Zona no especificada' : r.zona,
-      address: r.direccion.isEmpty ? 'Dirección no especificada' : r.direccion,
-      distanceKm: (r.seleccion['distanciaKm'] as num?)?.toDouble() ?? 0,
+      zone: 'Cancún',
+      // La dirección exacta solo llega cuando la solicitud está asignada a ti.
+      address: r.direccion ?? 'Se muestra al aceptar',
+      distanceKm: 0,
     );
 
     return ServiceRequest(
       id: '$_remotePrefix${r.id}',
-      cleaningType: r.tipoLimpieza,
-      description: r.descripcion,
+      cleaningType: r.servicio,
+      description: r.relacion == 'INVITADO' ? 'Solicitud real · te invitaron' : 'Solicitud real · bolsa abierta',
       scheduledAt: r.fecha,
-      durationHours: r.duracionHoras,
+      durationHours: (r.duracionMin / 60).ceil(),
       estimateMin: r.total,
       estimateMax: r.total,
       createdAt: now,
       client: client,
       space: space,
       status: status,
-      extraService: r.servicioExtra,
-      extraServicePrice: r.precioExtra,
-      extraDetails: r.detallesExtra,
-      conditions: r.condiciones,
+      extraService: r.extras.isEmpty ? null : r.extras.map((e) => e.nombre).join(', '),
+      extraServicePrice: r.extras.fold<double>(0, (s, e) => s + e.precio),
+      extraDetails: '',
+      conditions: const [],
     );
   }
 
@@ -674,6 +720,10 @@ class AppState extends ChangeNotifier {
   }
 
   ActionCheck canPropose(ServiceRequest r) {
+    if (_isRemote(r)) {
+      return const ActionCheck.no(
+          'En las solicitudes reales el precio lo calcula QueLimpiamos: solo aceptas o rechazas.');
+    }
     if (r.status == RequestStatus.enNegociacion ||
         r.status == RequestStatus.pendiente) {
       return const ActionCheck.ok();
@@ -710,6 +760,14 @@ class AppState extends ChangeNotifier {
     if (r.status != RequestStatus.confirmada) {
       return const ActionCheck.no('Solo puedes iniciar servicios confirmados.');
     }
+    if (_isRemote(r)) {
+      // Misma regla que el servidor: de 30 min antes a 30 min después de la hora programada.
+      final desde = r.scheduledAt.subtract(const Duration(minutes: 30));
+      final hasta = r.scheduledAt.add(const Duration(minutes: 30));
+      if (now.isBefore(desde)) return ActionCheck.no('Podrás iniciar desde las ${Fmt.time(desde)}.');
+      if (now.isAfter(hasta)) return const ActionCheck.no('Pasaron más de 30 min de la hora programada: ya no se puede iniciar. La administración revisará el caso.');
+      return const ActionCheck.ok();
+    }
     final active = activeJob;
     if (active != null) {
       return ActionCheck.no(
@@ -741,6 +799,9 @@ class AppState extends ChangeNotifier {
   }
 
   ActionCheck canChat(ServiceRequest r) {
+    if (_isRemote(r)) {
+      return const ActionCheck.no('El chat no está disponible en las solicitudes reales.');
+    }
     if (r.status == RequestStatus.disponible) {
       return const ActionCheck.no(
           'El chat se habilita cuando aceptas la oportunidad.');
@@ -752,6 +813,9 @@ class AppState extends ChangeNotifier {
   }
 
   ActionCheck canRate(ServiceRequest r) {
+    if (_isRemote(r)) {
+      return const ActionCheck.no('Califica al cliente desde «Mis servicios» cuando el servicio quede realizado.');
+    }
     if (r.status != RequestStatus.finalizada) {
       return const ActionCheck.no(
           'Solo puedes calificar servicios finalizados.');
@@ -843,13 +907,13 @@ class AppState extends ChangeNotifier {
 
     _accepting.add(id);
     try {
-      await RequestsApi.aceptar(id: remoteId, trabajadorId: wid);
+      await RequestsApi.aceptar(remoteId);
     } on ApiException catch (e) {
-      if (e.statusCode == 409) {
+      if (e.codigo == 'SOLICITUD_YA_TOMADA' || e.codigo == 'SOLICITUD_VENCIDA') {
         r.status = RequestStatus.cancelada;
         r.statusReason = 'Tomada por otro colaborador.';
         _commit();
-        return 'Otro colaborador ya tomó esta solicitud.';
+        return e.message;
       }
       return e.message;
     } catch (_) {
@@ -869,6 +933,48 @@ class AppState extends ChangeNotifier {
     _commit();
     return null;
   }
+
+  // ── Acciones de las solicitudes REALES (van al servidor; devuelven el error o null) ──
+
+  Future<String?> _remota(String id, Future<void> Function(int remoteId) llamada, void Function(ServiceRequest r) alTerminar) async {
+    final r = _require(id);
+    final remoteId = _remoteId(r);
+    if (!_isRemote(r) || remoteId == null) return 'Esta acción es solo para solicitudes reales.';
+    try {
+      await llamada(remoteId);
+    } on ApiException catch (e) {
+      return e.message;
+    } catch (_) {
+      return 'No se pudo conectar con el servidor.';
+    }
+    alTerminar(r);
+    _commit();
+    return null;
+  }
+
+  /// Rechazar una invitación o una de la bolsa (definitivo).
+  Future<String?> rejectRemote(String id) => _remota(id, RequestsApi.rechazar, (r) {
+        r.status = RequestStatus.rechazada;
+        r.statusReason = 'Rechazaste la solicitud.';
+      });
+
+  Future<String?> startRemote(String id) => _remota(id, (rid) => RequestsApi.iniciar(rid), (r) {
+        r.status = RequestStatus.enCurso;
+        r.startedAt = now;
+      });
+
+  /// «Terminado» con 1 a 5 fotos. Queda esperando la confirmación del cliente (D54).
+  Future<String?> finishRemote(String id, List<FotoDeReporte> fotos) => _remota(id, (rid) => RequestsApi.terminar(rid, fotos), (r) {
+        r.status = RequestStatus.finalizada;
+        r.finishedAt = now;
+        r.statusReason = 'Marcaste terminado: falta la confirmación del cliente.';
+      });
+
+  /// Cancelar sin cargo (24 h o más antes). Vuelve a la bolsa.
+  Future<String?> cancelRemote(String id, String motivo) => _remota(id, (rid) => RequestsApi.cancelar(rid, motivo), (r) {
+        r.status = RequestStatus.cancelada;
+        r.statusReason = 'Cancelaste el servicio: volvió a la bolsa.';
+      });
 
   void rejectRequest(String id, String reason) {
     final r = _require(id);

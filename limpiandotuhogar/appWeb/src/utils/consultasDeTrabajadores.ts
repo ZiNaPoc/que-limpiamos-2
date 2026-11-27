@@ -8,7 +8,6 @@ import { horarioCubreLaFecha } from "./horarios";
 import { estaActiva } from "./reglasDeSolicitudes";
 
 import type { 
-  Solicitud, 
   SolicitudListado, 
   Trabajador 
 } from "../data/tipos";
@@ -17,19 +16,8 @@ const DURACION_DE_REFERENCIA_EN_MINUTOS = 120;
 
 export type Reputacion = { promedio: number | null; cantidad: number };
 
-// Promedio de calificaciones de sus servicios
-//Cambiar either this or agregar lo de calificacion al schema
-/*export function calcularReputacion(solicitudes: SolicitudListado[], idDelTrabajador: string): Reputacion {
-  const puntuaciones = solicitudes 
-    .filter((solicitud) => solicitud.idTrabajador === idDelTrabajador && solicitud.calificacion)
-    .map((solicitud) => solicitud.calificacion!.puntuacion);
-  if (puntuaciones.length === 0) {
-    return { promedio: null, cantidad: 0 };
-  }
-  const suma = puntuaciones.reduce((total, puntuacion) => total + puntuacion, 0);
-  return { promedio: suma / puntuaciones.length, cantidad: puntuaciones.length };
-}
-*/
+// La reputación ya no sale de solicitud.calificacion (ese campo no existe en la API):
+// se calcula con las reseñas, en data/resenas.ts (calcularReputacionDelTrabajador). Fase 3a.
 
 export function describirReputacion(reputacion: Reputacion): string {
   if (reputacion.promedio === null) {

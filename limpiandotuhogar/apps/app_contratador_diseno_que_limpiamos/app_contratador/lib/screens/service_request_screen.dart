@@ -91,12 +91,12 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
     });
   }
 
-  // Fórmula de ejemplo: base + $25 por área + extras (rango de +$100).
-  // Ajústala cuando haya base de datos.
+  // Estimación con la regla del servidor (D4, docs/backend/25 v2): precio base del servicio +
+  // extras. Las áreas no cambian el precio. El precio definitivo lo da la cotización del servidor.
   int get _extrasTotal =>
       extrasSel.fold<int>(0, (suma, e) => suma + (extras[e] ?? 0));
-  int get _precioMin => widget.basePrice + areasSel.length * 25 + _extrasTotal;
-  int get _precioMax => _precioMin + 100;
+  int get _precioMin => widget.basePrice + _extrasTotal;
+  int get _precioMax => _precioMin;
 
   void _enviar() {
     if (areasSel.isEmpty) {

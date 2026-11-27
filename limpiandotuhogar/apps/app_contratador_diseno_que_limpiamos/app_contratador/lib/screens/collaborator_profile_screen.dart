@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../navigation/app_routes.dart';
+import '../services/historial_api.dart';
+import '../services/resenas_reportes_api.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/buttons.dart';
@@ -28,7 +30,7 @@ class CollaboratorProfileScreen extends StatelessWidget {
     AppRoutes.push(
       context,
       CotizacionScreen(
-        request: request.copyWith(collaborator: collaborator.nombre),
+        request: request.copyWith(collaborator: collaborator.nombre, collaboratorId: collaborator.id),
       ),
     );
   }
@@ -81,8 +83,14 @@ class CollaboratorProfileScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
 
+            // RESEÑAS (anónimas: solo calificación, comentario y mes/año)
+            if (c.id != null) ...[
+              FadeSlideIn(delay: FadeSlideIn.stagger(2), child: _ResenasDelColaborador(trabajadorId: c.id!)),
+              const SizedBox(height: 12),
+            ],
+
             // HORARIOS
-            FadeSlideIn(
+            if (c.tieneHorario) FadeSlideIn(
               delay: FadeSlideIn.stagger(2),
               child: AppCard(
                 child: Column(
@@ -97,7 +105,7 @@ class CollaboratorProfileScreen extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            c.dias,
+                            c.dias ?? '',
                             style: AppText.bodyStrong
                                 .copyWith(color: AppColors.primaryStrong),
                           ),
@@ -123,6 +131,41 @@ class CollaboratorProfileScreen extends StatelessWidget {
         ),
       ),
       bottomNavigationBar: const AppBottomNav(currentIndex: 1),
+    );
+  }
+}
+
+/// Reseñas del colaborador (GET /api/cliente/trabajadores/:id/resenas). Nunca muestra al autor.
+class _ResenasDelColaborador extends StatelessWidget {
+  const _ResenasDelColaborador({required this.trabajadorId});
+
+  final int trabajadorId;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: FutureBuilder<({Reputacion reputacion, List<ResenaPublica> resenas})>(
+        future: ResenasApi.resenasDeTrabajador(trabajadorId),
+        builder: (context, snap) {
+          final hijos = <Widget>[Text('Reseñas', style: AppText.heading), const SizedBox(height: 8)];
+          if (snap.hasError) {
+            hijos.add(Text('No se pudieron cargar las reseñas.', style: AppText.caption));
+          } else if (!snap.hasData) {
+            hijos.add(const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(strokeWidth: 2))));
+          } else {
+            final d = snap.data!;
+            hijos.add(EstrellasDeColaborador(promedio: d.reputacion.promedio, cantidad: d.reputacion.cantidad, size: 20));
+            for (final r in d.resenas.take(5)) {
+              hijos.addAll([
+                const Divider(height: 20),
+                Row(children: [BroomRating(value: r.puntuacion, size: 16), const Spacer(), Text('${kMeses[r.mes - 1]} ${r.anio}', style: AppText.caption)]),
+                if (r.comentario != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(r.comentario!, style: AppText.body)),
+              ]);
+            }
+          }
+          return Column(crossAxisAlignment: CrossAxisAlignment.start, children: hijos);
+        },
+      ),
     );
   }
 }

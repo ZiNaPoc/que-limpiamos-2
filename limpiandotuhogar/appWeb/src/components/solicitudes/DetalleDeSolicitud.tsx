@@ -1,415 +1,365 @@
-import { useState, type ReactNode } from "react";
-import { useAhora } from "../../hooks/useAhora";
-import { buscarCliente, useClientes } from "../../data/ClientesContext";
-import { useSolicitudes } from "../../hooks/useSolicitudes";
-import { useTrabajadores } from "../../data/TrabajadoresContext";
-import { buscarTrabajador } from "../../data/trabajadores";
-import type { EtapaDeSolicitud, Navegar, ResultadoDeOperacion, Solicitud } from "../../data/tipos";
-import { obtenerClaveDeFecha } from "../../utils/fechas";
-import { describirHorario, describirTiempoDesdeCreacion, formatearFechaNumerica, formatearHora } from "../../utils/formato";
+import { useCallback, useState, type ReactNode } from "react";
+
+import { ErrorDeApi } from "../../data/api";
+import { usePermisos } from "../../data/permisos";
+import { ETIQUETA_DE_TIPO } from "../../data/reportes";
 import {
-  describirCancelacion,
-  describirCambioDeTrabajador,
-  describirConfirmacion,
-  describirEstadoDeLaAsignacion,
-  describirFinalizacion,
-  evaluarCambioDeTrabajador,
-  evaluarCancelacion,
-  evaluarConfirmacion,
-  evaluarFinalizacion,
-  LONGITUD_MAXIMA_DEL_MOTIVO,
-  listarTrabajadoresConDisponibilidad,
-  obtenerEtapa,
-  puedeAtender,
-  validarCambioDeTrabajador,
-  validarMotivoDeCancelacion,
-  type DisponibilidadDelTrabajador,
-} from "../../utils/reglasDeSolicitudes";
+  consultarDetalle,
+  type DetalleDeSupervision,
+  ETIQUETA_DE_ACTOR,
+  ETIQUETA_DE_ESTADO,
+  ETIQUETA_DE_ESTADO_DEL_TRABAJADOR,
+  ETIQUETA_DE_MODO,
+  ETIQUETA_DE_MOTIVO_DE_CIERRE,
+  ETIQUETA_DE_VIA,
+  resolverServicio,
+  urlDeFotoDeSolicitud,
+} from "../../data/solicitudesAdmin";
+import { INTERVALO_DE_ACTUALIZACION_MS } from "../../data/SolicitudesProvider";
+import type { Navegar, ResultadoDeOperacion } from "../../data/tipos";
+import { useActualizacionPeriodica } from "../../hooks/useActualizacionPeriodica";
+import { useAhora } from "../../hooks/useAhora";
+import { formatearFechaYHora, haceCuanto } from "../../utils/fechasDeSolicitudes";
 import { AvisoTemporal } from "../comunes/AvisoTemporal";
 import { CampoDeFormulario } from "../comunes/CampoDeFormulario";
 import { Icono } from "../comunes/Icono";
-import { InsigniaDeEstado } from "../comunes/Insignias";
-import { VentanaDeConfirmacion, VentanaModal } from "../comunes/VentanasModales";
+import { VentanaModal } from "../comunes/VentanasModales";
+import { InsigniaDeEstadoDeSolicitud, InsigniasDeAlerta } from "./ListaDeSolicitudes";
 
-function FilaDeInformacion({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
+const MOTIVO = { min: 10, max: 500 };
+const TIPO_DE_INMUEBLE: Record<string, string> = { CASA: "Casa", OFICINA: "Oficina", DEPARTAMENTO: "Departamento" };
+const dinero = (n: number) => n.toLocaleString("es-MX", { style: "currency", currency: "MXN" });
+
+function Tarjeta({ titulo, children, className = "" }: { titulo: string; children: ReactNode; className?: string }) {
   return (
-    <div className="rounded-2xl bg-beige px-4 py-3">
-      <dt className="text-xs font-bold uppercase tracking-wider text-slate">{etiqueta}</dt>
-      <dd className="mt-1 text-sm font-bold text-navy">{children}</dd>
-    </div>
+    <section className={`surface leaf-sm p-6 ${className}`}>
+      <h2 className="text-xs font-bold uppercase tracking-wider text-slate">{titulo}</h2>
+      <div className="mt-3 space-y-1.5 text-sm text-navy">{children}</div>
+    </section>
   );
 }
 
-// Pasos que se muestran en la barra de seguimiento
-const PASOS_DEL_SEGUIMIENTO: EtapaDeSolicitud[] = ["Solicitud enviada", "Asignando colaborador", "Servicio confirmado", "Servicio finalizado"];
-
-// Barra de pasos: marca lo completado y el paso actual
-function SeguimientoDeLaSolicitud({ etapa }: { etapa: EtapaDeSolicitud }) {
-  if (etapa === "Cancelada") {
-    return null;
-  }
-  const pasoActual = PASOS_DEL_SEGUIMIENTO.indexOf(etapa);
+function Dato({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
   return (
-    <ol aria-label="Seguimiento de la solicitud" className="mt-6 grid gap-2 sm:grid-cols-4">
-      {PASOS_DEL_SEGUIMIENTO.map((paso, indice) => {
-        const completado = indice < pasoActual || etapa === "Servicio finalizado";
-        const esActual = indice === pasoActual && etapa !== "Servicio finalizado";
-        return (
-          <li key={paso} aria-current={esActual ? "step" : undefined} className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold ${esActual ? "bg-navy text-white" : completado ? "bg-moss/40 text-storm" : "bg-white text-slate"}`}>
-            <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs ${esActual ? "bg-white/20" : completado ? "bg-sage text-white" : "bg-beige"}`}>
-              {completado ? <Icono nombre="palomita" className="h-4 w-4" /> : indice + 1}
-            </span>
-            {paso}
-          </li>
-        );
-      })}
-    </ol>
+    <p>
+      <span className="text-slate">{etiqueta}: </span>
+      <span className="font-bold">{children}</span>
+    </p>
   );
 }
 
-// Ventana para escribir el motivo de la cancelación
-function VentanaDeCancelacion({ solicitud, onCerrar, onContinuar }: { solicitud: Solicitud; onCerrar: () => void; onContinuar: (motivo: string) => void }) {
-  const [motivo, setMotivo] = useState("");
-  const [error, setError] = useState("");
+type DetalleDeSolicitudProps = { idSolicitud: number; onVolver: () => void; onNavegar: Navegar };
 
-  function handleContinuar() {
-    const errorDelMotivo = validarMotivoDeCancelacion(motivo);
-    if (errorDelMotivo) {
-      setError(errorDelMotivo);
-      return;
-    }
-    onContinuar(motivo);
-  }
-
-  return (
-    <VentanaModal idDelTitulo="titulo-de-cancelacion" onCerrar={onCerrar}>
-      <h2 id="titulo-de-cancelacion" className="text-2xl font-extrabold text-navy">
-        Cancelar {solicitud.id}
-      </h2>
-      <p className="mt-2 text-sm text-slate">Úsalo solo cuando el servicio no pueda realizarse (por ejemplo, el colaborador ya no puede asistir y no hay reemplazo). Se libera la asignación y el cliente deberá solicitar de nuevo desde la app.</p>
-      <div className="mt-5">
-        <CampoDeFormulario id="motivo-de-cancelacion" etiqueta="Motivo (lo verá el cliente)" error={error}>
-          <textarea id="motivo-de-cancelacion" rows={4} maxLength={LONGITUD_MAXIMA_DEL_MOTIVO} value={motivo} onChange={(evento) => setMotivo(evento.target.value)} aria-invalid={Boolean(error)} aria-describedby={error ? "motivo-de-cancelacion-error" : undefined} className="field resize-y" />
-        </CampoDeFormulario>
-        <p className="mt-1.5 text-right text-xs text-slate">
-          {motivo.trim().length}/{LONGITUD_MAXIMA_DEL_MOTIVO}
-        </p>
-      </div>
-      <div className="mt-5 flex justify-end gap-3">
-        <button onClick={onCerrar} className="btn btn-quiet">
-          Volver
-        </button>
-        <button onClick={handleContinuar} className="btn btn-primary">
-          Revisar cancelación
-        </button>
-      </div>
-    </VentanaModal>
-  );
-}
-
-// Texto de cada colaborador en la lista, con sus avisos
-function describirOpcion(disponibilidad: DisponibilidadDelTrabajador): string {
-  const { trabajador, estaInactivo, estaOcupado, fueraDeHorario, tieneLaEspecialidad } = disponibilidad;
-  const notas: string[] = [];
-  if (estaInactivo) {
-    notas.push("inactivo");
-  } else if (fueraDeHorario) {
-    notas.push("fuera de su horario");
-  } else if (estaOcupado) {
-    notas.push("ocupado a esa hora");
-  }
-  if (!tieneLaEspecialidad) {
-    notas.push("sin esta especialidad");
-  }
-  return `${trabajador.id} · ${trabajador.nombre}${notas.length > 0 ? ` (${notas.join(", ")})` : ""}`;
-}
-
-// Acciones que piden confirmación antes de ejecutarse
-type AccionPorConfirmar = { tipo: "asignacion" } | { tipo: "confirmacion" } | { tipo: "finalizacion" } | { tipo: "cancelacion"; motivo: string };
-
-type DetalleDeSolicitudProps = {
-  solicitud: Solicitud;
-  onVolver: () => void;
-  onNavegar: Navegar;
-};
-
-// Detalle de una solicitud: aquí el administrador avanza el flujo
-export function DetalleDeSolicitud({ solicitud, onVolver, onNavegar }: DetalleDeSolicitudProps) {
-  const { solicitudes, cambiarTrabajadorAsignado, confirmarServicio, finalizarServicio, cancelarSolicitud } = useSolicitudes();
-  const { trabajadores } = useTrabajadores();
-  const { clientes } = useClientes();
+// Detalle para SUPERVISAR (D24: no se asigna, confirma, finaliza ni cancela desde aquí). Se
+// actualiza cada 20 s con la página visible. La única acción es resolver el servicio cuando hay un
+// reporte activo, con el permiso de incidencias; la resolución es inmutable (docs/backend/25 v2 §4).
+export function DetalleDeSolicitud({ idSolicitud, onVolver, onNavegar }: DetalleDeSolicitudProps) {
   const ahora = useAhora();
-  const claveDeHoy = obtenerClaveDeFecha(ahora);
-  // Estado de la pantalla: edición, ventanas abiertas y aviso final
-  const [estaEditandoAsignacion, setEstaEditandoAsignacion] = useState(false);
-  const [idDelTrabajadorElegido, setIdDelTrabajadorElegido] = useState(solicitud.idDelTrabajador ?? "");
-  const [errorDeAsignacion, setErrorDeAsignacion] = useState("");
-  const [ventanaDeCancelacionAbierta, setVentanaDeCancelacionAbierta] = useState(false);
-  const [accionPorConfirmar, setAccionPorConfirmar] = useState<AccionPorConfirmar | null>(null);
+  const { tiene } = usePermisos();
+  const [detalle, setDetalle] = useState<DetalleDeSupervision | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<ResultadoDeOperacion | null>(null);
+  const [resolviendo, setResolviendo] = useState(false);
 
-  const etapa = obtenerEtapa(solicitud);
-  const cliente = buscarCliente(clientes, solicitud.idDelCliente);
-  const nombreDelCliente = cliente ? cliente.nombre : `Cliente ${solicitud.idDelCliente}`;
-  const trabajadorAsignado = buscarTrabajador(trabajadores, solicitud.idDelTrabajador);
-  // Permisos según las reglas: definen qué botones se pueden usar
-  const permisoDeAsignacion = evaluarCambioDeTrabajador(solicitud);
-  const permisoDeConfirmacion = evaluarConfirmacion(solicitud, trabajadores, ahora);
-  const permisoDeFinalizacion = evaluarFinalizacion(solicitud, ahora);
-  const permisoDeCancelacion = evaluarCancelacion(solicitud);
-  const trabajadoresConDisponibilidad = listarTrabajadoresConDisponibilidad(solicitudes, trabajadores, solicitud);
-  const colaboradorSinEspecialidad = trabajadorAsignado && !trabajadorAsignado.especialidades.includes(solicitud.idDelServicio);
-  const idDelTrabajadorNuevo = idDelTrabajadorElegido || null;
+  const cargar = useCallback(async () => {
+    try {
+      setDetalle(await consultarDetalle(idSolicitud));
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo cargar la solicitud");
+    }
+  }, [idSolicitud]);
 
-  // Razón por la que todavía no se puede avanzar al siguiente paso
-  let motivoParaNoAvanzar = "";
-  if (etapa === "Asignando colaborador" && !permisoDeConfirmacion.exito) {
-    motivoParaNoAvanzar = permisoDeConfirmacion.mensaje;
-  } else if (etapa === "Servicio confirmado" && !permisoDeFinalizacion.exito) {
-    motivoParaNoAvanzar = permisoDeFinalizacion.mensaje;
+  useActualizacionPeriodica(cargar, INTERVALO_DE_ACTUALIZACION_MS, true, true);
+
+  async function abrirFoto(idFoto: number) {
+    try {
+      window.open(await urlDeFotoDeSolicitud(idSolicitud, idFoto), "_blank", "noopener");
+    } catch (e) {
+      setAviso({ exito: false, mensaje: e instanceof Error ? e.message : "No se pudo abrir la foto" });
+    }
   }
 
-  // Abre el selector de colaborador
-  function comenzarEdicionDeAsignacion() {
-    setIdDelTrabajadorElegido(solicitud.idDelTrabajador ?? "");
-    setErrorDeAsignacion("");
-    setEstaEditandoAsignacion(true);
+  if (!detalle) {
+    return (
+      <div>
+        <button onClick={onVolver} className="btn btn-quiet">
+          <Icono nombre="volver" /> Volver
+        </button>
+        <p role={error ? "alert" : "status"} className="mt-6 rounded-2xl bg-white p-8 text-center text-sm text-slate">
+          {error ?? "Cargando la solicitud…"}
+        </p>
+      </div>
+    );
   }
 
-  // Valida el cambio y pide confirmación
-  function pedirConfirmacionDeAsignacion() {
-    if (idDelTrabajadorNuevo === solicitud.idDelTrabajador) {
-      setEstaEditandoAsignacion(false);
-      setAviso({ exito: true, mensaje: "No había cambios por aplicar." });
-      return;
-    }
-    const validacion = validarCambioDeTrabajador(solicitud, idDelTrabajadorNuevo, solicitudes, trabajadores);
-    if (!validacion.exito) {
-      setErrorDeAsignacion(validacion.mensaje);
-      return;
-    }
-    setAccionPorConfirmar({ tipo: "asignacion" });
-  }
-
-  // Ejecuta la acción confirmada y muestra el resultado
-  function ejecutarAccion() {
-    if (!accionPorConfirmar) {
-      return;
-    }
-    let resultado: ResultadoDeOperacion;
-    if (accionPorConfirmar.tipo === "asignacion") {
-      resultado = cambiarTrabajadorAsignado(solicitud.id, idDelTrabajadorNuevo);
-      if (resultado.exito) {
-        setEstaEditandoAsignacion(false);
-      } else {
-        setErrorDeAsignacion(resultado.mensaje);
-      }
-    } else if (accionPorConfirmar.tipo === "confirmacion") {
-      resultado = confirmarServicio(solicitud.id);
-    } else if (accionPorConfirmar.tipo === "finalizacion") {
-      resultado = finalizarServicio(solicitud.id);
-    } else {
-      resultado = cancelarSolicitud(solicitud.id, accionPorConfirmar.motivo);
-    }
-    setAccionPorConfirmar(null);
-    setAviso(resultado);
-  }
-
-  // Texto de la ventana de confirmación según la acción
-  let confirmacion: { titulo: string; lineas: string[]; etiqueta: string } | null = null;
-  if (accionPorConfirmar?.tipo === "asignacion") {
-    confirmacion = { titulo: solicitud.idDelTrabajador ? "¿Cambiar el colaborador?" : "¿Asignar este colaborador?", lineas: describirCambioDeTrabajador(solicitud, idDelTrabajadorNuevo, trabajadores), etiqueta: "Sí, guardar" };
-  } else if (accionPorConfirmar?.tipo === "confirmacion") {
-    confirmacion = { titulo: "¿Confirmar el servicio?", lineas: describirConfirmacion(solicitud, trabajadores), etiqueta: "Sí, confirmar" };
-  } else if (accionPorConfirmar?.tipo === "finalizacion") {
-    confirmacion = { titulo: "¿Marcar el servicio como finalizado?", lineas: describirFinalizacion(), etiqueta: "Sí, finalizar" };
-  } else if (accionPorConfirmar?.tipo === "cancelacion") {
-    confirmacion = { titulo: "¿Cancelar la solicitud?", lineas: describirCancelacion(solicitud, accionPorConfirmar.motivo, claveDeHoy), etiqueta: "Sí, cancelar" };
+  const d = detalle;
+  const i = d.inmueble;
+  const tieneIncidencias = tiene("GESTIONAR_INCIDENCIAS_FINANZAS");
+  let motivoNoResolver = "";
+  if (!d.resolucion && !d.puedeResolver) {
+    if (!tieneIncidencias) motivoNoResolver = "Resolver una incidencia requiere el permiso de incidencias y finanzas.";
+    else if (d.estado !== "CONFIRMADO" && d.estado !== "EN_PROCESO") motivoNoResolver = "Solo se resuelve un servicio confirmado o en proceso.";
+    else motivoNoResolver = "No hay reportes activos: no hay una incidencia que resolver.";
   }
 
   return (
-    <div>
-      <button onClick={onVolver} className="btn btn-quiet">
-        <Icono nombre="volver" className="h-4 w-4" />
-        Volver a solicitudes
-      </button>
-
-      <header className="mt-8 flex flex-wrap items-center gap-3">
-        <span className="rounded-full bg-navy px-3 py-1 text-xs font-bold text-white">{solicitud.id}</span>
-        <InsigniaDeEstado estado={etapa} />
-        <h1 className="w-full text-4xl font-extrabold text-navy">{solicitud.servicio}</h1>
-        <p className="w-full text-sm text-slate">
-          Solicitada el {formatearFechaNumerica(solicitud.fechaDeCreacion)} · {describirTiempoDesdeCreacion(solicitud.fechaDeCreacion, ahora)}
-        </p>
-      </header>
-
-      {/* Seguimiento de la solicitud paso a paso */}
-      <SeguimientoDeLaSolicitud etapa={etapa} />
-
-      <div className="mt-8 grid gap-8 lg:grid-cols-12">
-        {/* Datos del cliente */}
-        <section aria-labelledby="titulo-del-cliente" className="surface leaf-r h-fit p-7 sm:p-9 lg:col-span-5">
-          <p className="text-xs font-bold uppercase tracking-widest text-lagoon">Cliente</p>
-          <h2 id="titulo-del-cliente" className="mt-1 text-3xl font-extrabold text-navy">
-            {nombreDelCliente}
-          </h2>
-          {cliente && (
-            <dl className="mt-4 space-y-2">
-              <FilaDeInformacion etiqueta="Teléfono">{cliente.telefono}</FilaDeInformacion>
-              <FilaDeInformacion etiqueta="Correo">
-                <span className="break-all">{cliente.correo}</span>
-              </FilaDeInformacion>
-              <FilaDeInformacion etiqueta="Verificación del INE">
-                <InsigniaDeEstado estado={cliente.verificacion.estado} />
-              </FilaDeInformacion>
-            </dl>
-          )}
-          {!cliente && <p className="mt-4 rounded-2xl bg-moon p-4 text-sm text-clay">No se encontró el registro del cliente {solicitud.idDelCliente}.</p>}
-          {cliente && (
-            <button onClick={() => onNavegar("clientes", { idDelCliente: cliente.id })} className="btn btn-quiet mt-5">
-              <Icono nombre="usuario" className="h-4 w-4" />
-              Ver perfil del cliente
-            </button>
-          )}
-        </section>
-
-        {/* Servicio y asignación del colaborador */}
-        <section aria-labelledby="titulo-del-servicio-acordado" className="surface leaf h-fit p-7 sm:p-9 lg:col-span-7">
-          <h2 id="titulo-del-servicio-acordado" className="text-2xl font-extrabold text-navy">
-            Servicio y colaborador
-          </h2>
-
-          <dl className="mt-4 grid gap-2 sm:grid-cols-2">
-            <FilaDeInformacion etiqueta="Servicio seleccionado">{solicitud.servicio}</FilaDeInformacion>
-            <FilaDeInformacion etiqueta="Fecha y horario solicitados">
-              {formatearFechaNumerica(solicitud.fechaProgramada)} · {formatearHora(solicitud.fechaProgramada)}
-              <span className="mt-0.5 block text-xs font-semibold text-slate">{describirHorario(solicitud.fechaProgramada, claveDeHoy)}</span>
-            </FilaDeInformacion>
-            <FilaDeInformacion etiqueta="Elección del colaborador">{solicitud.modoDeEleccion === "Cliente" ? "Selección manual" : "Asignación automática"}</FilaDeInformacion>
-            {!estaEditandoAsignacion && trabajadorAsignado && (
-              <FilaDeInformacion etiqueta={etapa === "Cancelada" ? "Colaborador antes de cancelar" : "Colaborador asignado"}>
-                <span>
-                  {trabajadorAsignado.id} · {trabajadorAsignado.nombre}
-                </span>
-                <span className="mt-1 block text-xs font-semibold text-slate">{describirEstadoDeLaAsignacion(solicitud)}</span>
-              </FilaDeInformacion>
-            )}
-          </dl>
-
-          {colaboradorSinEspecialidad && !estaEditandoAsignacion && (
-            <p className="mt-3 flex items-start gap-2 rounded-2xl bg-moon p-3 text-xs text-clay">
-              <Icono nombre="alerta" className="h-4 w-4 text-ochre" />
-              {trabajadorAsignado.nombre} no tiene «{solicitud.servicio}» entre sus especialidades.
-            </p>
-          )}
-
-          {solicitud.cancelacion && (
-            <div className="mt-3 rounded-2xl bg-mist/70 p-4 text-sm text-storm">
-              <p className="font-bold text-navy">Cancelada por {solicitud.cancelacion.canceladaPor === "Cliente" ? "el cliente" : "la administración"}</p>
-              <p className="mt-1">{solicitud.cancelacion.motivo}</p>
-              <p className="mt-1 text-xs text-slate">
-                {formatearFechaNumerica(solicitud.cancelacion.fecha)} · {formatearHora(solicitud.cancelacion.fecha)}
-              </p>
-            </div>
-          )}
-
-          {estaEditandoAsignacion && (
-            <div className="fade mt-4 space-y-4">
-              <CampoDeFormulario id="trabajador" etiqueta="Colaborador" error={errorDeAsignacion}>
-                {/* Lista de colaboradores, con los disponibles primero */}
-                <select id="trabajador" value={idDelTrabajadorElegido} onChange={(evento) => setIdDelTrabajadorElegido(evento.target.value)} aria-invalid={Boolean(errorDeAsignacion)} aria-describedby={errorDeAsignacion ? "trabajador-error" : "trabajador-ayuda"} className="field cursor-pointer">
-                  <option value="">Sin asignar</option>
-                  {trabajadoresConDisponibilidad.map((disponibilidad) => (
-                    <option key={disponibilidad.trabajador.id} value={disponibilidad.trabajador.id} disabled={!puedeAtender(disponibilidad) && disponibilidad.trabajador.id !== solicitud.idDelTrabajador}>
-                      {describirOpcion(disponibilidad)}
-                    </option>
-                  ))}
-                </select>
-              </CampoDeFormulario>
-              <p id="trabajador-ayuda" className="text-xs text-slate">
-                Solo se pueden elegir colaboradores activos que trabajan a esa hora y no tienen otro servicio cerca. La fecha y la hora no cambian.
-              </p>
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  onClick={() => {
-                    setEstaEditandoAsignacion(false);
-                    setErrorDeAsignacion("");
-                  }}
-                  className="btn btn-quiet"
-                >
-                  Cancelar
-                </button>
-                <button onClick={pedirConfirmacionDeAsignacion} className="btn btn-primary">
-                  Guardar
-                </button>
-              </div>
-            </div>
-          )}
-
-          {!estaEditandoAsignacion && (
-            <div className="fade">
-              {/* Muestra por qué no se puede avanzar */}
-              {motivoParaNoAvanzar && (
-                <p className="mt-4 flex items-start gap-2 rounded-2xl bg-moon p-3 text-xs text-clay">
-                  <Icono nombre="alerta" className="h-4 w-4 text-ochre" />
-                  {motivoParaNoAvanzar}
-                </p>
-              )}
-              {etapa === "Servicio confirmado" && (
-                <p className="mt-4 flex items-start gap-2 rounded-2xl bg-moss/30 p-3 text-xs text-storm">
-                  <Icono nombre="candado" className="h-4 w-4 text-lagoon" />
-                  El servicio está confirmado: el colaborador ya no se puede cambiar. Si no puede realizarse, cancélalo.
-                </p>
-              )}
-              <div className="mt-6 flex flex-wrap justify-end gap-3">
-                {/* Cancelar la solicitud */}
-                {permisoDeCancelacion.exito && (
-                  <button onClick={() => setVentanaDeCancelacionAbierta(true)} className="btn btn-quiet text-err">
-                    <Icono nombre="prohibido" className="h-4 w-4" />
-                    Cancelar solicitud
-                  </button>
-                )}
-                {/* Asignar o cambiar colaborador */}
-                {permisoDeAsignacion.exito && (
-                  <button onClick={comenzarEdicionDeAsignacion} className={`btn ${etapa === "Solicitud enviada" ? "btn-primary" : "btn-quiet"}`}>
-                    <Icono nombre="editar" className="h-4 w-4" />
-                    {solicitud.idDelTrabajador ? "Cambiar colaborador" : "Asignar colaborador"}
-                  </button>
-                )}
-                {/* Confirmar el servicio */}
-                {etapa === "Asignando colaborador" && (
-                  <button onClick={() => setAccionPorConfirmar({ tipo: "confirmacion" })} disabled={!permisoDeConfirmacion.exito} className="btn btn-primary disabled:cursor-not-allowed disabled:opacity-50">
-                    <Icono nombre="palomita" className="h-4 w-4" />
-                    Confirmar servicio
-                  </button>
-                )}
-                {/* Finalizar el servicio */}
-                {etapa === "Servicio confirmado" && (
-                  <button onClick={() => setAccionPorConfirmar({ tipo: "finalizacion" })} disabled={!permisoDeFinalizacion.exito} className="btn btn-primary disabled:cursor-not-allowed disabled:opacity-50">
-                    <Icono nombre="palomita" className="h-4 w-4" />
-                    Marcar como finalizado
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </section>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button onClick={onVolver} className="btn btn-quiet">
+          <Icono nombre="volver" /> Volver a la lista
+        </button>
+        <div className="flex items-center gap-3 text-xs text-slate">
+          <span aria-live="polite">Actualizado {haceCuanto(d.actualizadoEn, ahora)} · cada 20 s</span>
+          <button onClick={() => void cargar()} className="btn btn-quiet">
+            <Icono nombre="restablecer" /> Actualizar
+          </button>
+        </div>
       </div>
 
-      {ventanaDeCancelacionAbierta && (
-        <VentanaDeCancelacion
-          solicitud={solicitud}
-          onCerrar={() => setVentanaDeCancelacionAbierta(false)}
-          onContinuar={(motivo) => {
-            setVentanaDeCancelacionAbierta(false);
-            setAccionPorConfirmar({ tipo: "cancelacion", motivo });
+      <header className="flex flex-wrap items-center gap-3">
+        <h1 className="text-4xl font-extrabold text-navy">Solicitud {d.id}</h1>
+        <InsigniaDeEstadoDeSolicitud estado={d.estado} />
+        <InsigniasDeAlerta alertas={d.alertas} />
+      </header>
+      {error && (
+        <p role="alert" className="rounded-2xl bg-moon p-4 text-sm text-clay">
+          No se pudo actualizar: {error}. Se muestran los últimos datos cargados.
+        </p>
+      )}
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <Tarjeta titulo="Cliente">
+          <Dato etiqueta="Nombre">{d.cliente.nombre}</Dato>
+          <Dato etiqueta="Correo">{d.cliente.correo}</Dato>
+          <Dato etiqueta="Teléfono">{d.cliente.telefono ?? "—"}</Dato>
+          <Dato etiqueta="Identidad">{d.cliente.verificacion ?? "—"}</Dato>
+        </Tarjeta>
+        <Tarjeta titulo="Servicio">
+          <Dato etiqueta="Servicio">{d.servicio}</Dato>
+          <Dato etiqueta="Programada">{formatearFechaYHora(d.fechaProgramada)}</Dato>
+          <Dato etiqueta="Fin estimado">{formatearFechaYHora(d.finEstimado)}</Dato>
+          <Dato etiqueta="Duración">{d.duracionMin ? `${d.duracionMin} min` : "—"}</Dato>
+          <Dato etiqueta="Precio (informativo)">
+            {dinero(d.precio.total)} · base {dinero(d.precio.base)} + extras {dinero(d.precio.extras)}
+          </Dato>
+          <p className="text-xs text-slate">Pago en efectivo. En esta fase no se registran pagos ni movimientos (estado del pago: {d.precio.estadoPago}).</p>
+        </Tarjeta>
+        <Tarjeta titulo="Inmueble (copia guardada al crear la solicitud)">
+          {i.nombre && <Dato etiqueta="Nombre">{i.nombre}</Dato>}
+          <Dato etiqueta="Tipo">{i.tipo ? TIPO_DE_INMUEBLE[i.tipo] ?? i.tipo : "—"}</Dato>
+          <Dato etiqueta="Dirección">{d.direccion}</Dato>
+          <Dato etiqueta="Medidas">
+            {i.habitaciones ?? 0} habitaciones · {i.banos ?? 0} baños · {i.mediosBanos ?? 0} medios baños · {i.pisos ?? 1} pisos
+          </Dato>
+          <p className="text-xs text-slate">{i.guardado ? "Tomado de «Mis inmuebles» del cliente." : "Capturado solo para esta solicitud."}</p>
+        </Tarjeta>
+        <Tarjeta titulo="Detalle del pedido">
+          <Dato etiqueta="Áreas">{d.areas.length ? d.areas.join(", ") : "—"}</Dato>
+          <Dato etiqueta="Extras">{d.extras.length ? d.extras.map((e) => `${e.nombre} (${dinero(e.precio)})`).join(", ") : "—"}</Dato>
+          <Dato etiqueta="Especialidades requeridas">{d.especialidades.length ? d.especialidades.join(", ") : "—"}</Dato>
+          <Dato etiqueta="Notas">{d.notas ?? "—"}</Dato>
+        </Tarjeta>
+      </div>
+
+      <Tarjeta titulo={`Asignación · ${ETIQUETA_DE_MODO[d.modo]}`}>
+        <Dato etiqueta="Colaborador asignado">{d.trabajador ? `${d.trabajador.nombre} (${d.trabajador.telefono})` : "Ninguno todavía"}</Dato>
+        {d.modo === "BOLSA" && !d.trabajador && <p className="text-slate">En la bolsa: la ven los colaboradores activos, verificados, con las especialidades y sin otro servicio en ese horario.</p>}
+        {d.trabajadores.length > 0 ? (
+          <ul className="mt-3 divide-y divide-mist/70">
+            {d.trabajadores.map((t) => (
+              <li key={t.trabajador.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span className="font-bold">{t.trabajador.nombre}</span>
+                <span className="text-slate">
+                  {t.origen === "INVITACION" ? "Invitado" : "Desde la bolsa"} · {ETIQUETA_DE_ESTADO_DEL_TRABAJADOR[t.estado] ?? t.estado}
+                  {t.motivoCierre ? ` (${ETIQUETA_DE_MOTIVO_DE_CIERRE[t.motivoCierre] ?? t.motivoCierre})` : ""} · {formatearFechaYHora(t.respondidaEn ?? t.creadaEn)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-slate">Ningún colaborador ha respondido todavía.</p>
+        )}
+      </Tarjeta>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <Tarjeta titulo="Seguimiento del servicio">
+          <Dato etiqueta="El colaborador marcó terminado">{formatearFechaYHora(d.marcas.trabajadorTerminoEn)}</Dato>
+          <Dato etiqueta="El cliente confirmó">{formatearFechaYHora(d.marcas.clienteConfirmoEn)}</Dato>
+          <Dato etiqueta="Se pidió confirmar (D54)">{formatearFechaYHora(d.marcas.confirmacionSolicitadaEn)}</Dato>
+          <Dato etiqueta="Aviso con evidencia (D54)">{formatearFechaYHora(d.marcas.avisoEvidenciaEn)}</Dato>
+          <Dato etiqueta="Realizado">
+            {d.marcas.realizadoEn ? `${formatearFechaYHora(d.marcas.realizadoEn)} (${ETIQUETA_DE_VIA[d.marcas.realizadoVia ?? ""] ?? d.marcas.realizadoVia})` : "—"}
+          </Dato>
+        </Tarjeta>
+        <Tarjeta titulo="Fotos del trabajo terminado">
+          {d.fotosTerminado.length ? (
+            <div className="flex flex-wrap gap-2">
+              {d.fotosTerminado.map((f, n) => (
+                <button key={f.id} onClick={() => void abrirFoto(f.id)} className="btn btn-quiet">
+                  <Icono nombre="imagen" /> Foto {n + 1}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-slate">El colaborador aún no ha subido fotos.</p>
+          )}
+          <p className="text-xs text-slate">Se abren con un enlace temporal de 60 s.</p>
+        </Tarjeta>
+      </div>
+
+      <Tarjeta titulo="Reportes de esta solicitud">
+        {d.reportes.length === 0 && <p className="text-slate">Sin reportes.</p>}
+        {!d.verContenidoDeReportes && d.reportes.length > 0 && (
+          <p className="text-xs text-slate">El contenido de los reportes solo lo ven la moderación (página Reportes) y quien tiene el permiso de incidencias.</p>
+        )}
+        <ul className="divide-y divide-mist/70">
+          {d.reportes.map((r) => (
+            <li key={r.id} className="py-3">
+              <p className="flex flex-wrap items-center gap-2">
+                <span className="font-bold">#{r.id}</span>
+                <span>{ETIQUETA_DE_TIPO[r.tipo as keyof typeof ETIQUETA_DE_TIPO] ?? r.tipo}</span>
+                <span className="text-slate">
+                  · lo reportó el {r.reportadoPor === "CLIENTE" ? "cliente" : "colaborador"} · {formatearFechaYHora(r.fecha)} · {r.eliminado ? "eliminado" : r.estado.toLowerCase().replace("_", " ")}
+                </span>
+                {r.activo && <span className="rounded-full bg-err/10 px-2.5 py-0.5 text-xs font-bold text-err">Bloquea la confirmación automática</span>}
+              </p>
+              {r.descripcion !== undefined && <p className="mt-1 text-slate">{r.descripcion ?? "(sin descripción)"}</p>}
+              {r.fotos && r.fotos.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {r.fotos.map((f, n) => (
+                    <button key={f.id} onClick={() => void abrirFoto(f.id)} className="btn btn-quiet">
+                      <Icono nombre="imagen" /> Foto {n + 1}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+        {d.reportes.length > 0 && tiene("MODERAR_CONTENIDO") && (
+          <button onClick={() => onNavegar("reportes")} className="btn btn-quiet mt-2">
+            Ir a Reportes
+          </button>
+        )}
+      </Tarjeta>
+
+      <Tarjeta titulo="Resolución administrativa">
+        {d.resolucion ? (
+          <>
+            <Dato etiqueta="Resultado">{d.resolucion.resultadoServicio === "REALIZADO" ? "Realizado" : "No realizado (cancelada)"}</Dato>
+            <Dato etiqueta="Motivo">{d.resolucion.motivo}</Dato>
+            <Dato etiqueta="Por">
+              {d.resolucion.admin} · {formatearFechaYHora(d.resolucion.fecha)}
+            </Dato>
+            <p className="text-xs text-slate">Las resoluciones son definitivas: no se pueden modificar desde el panel.</p>
+          </>
+        ) : d.puedeResolver ? (
+          <>
+            <p>Revisa las pruebas de ambas partes y decide si el servicio se realizó. La decisión es definitiva y queda en la auditoría.</p>
+            <button onClick={() => setResolviendo(true)} className="btn btn-primary mt-2">
+              Resolver el servicio
+            </button>
+          </>
+        ) : (
+          <p className="text-slate">{motivoNoResolver}</p>
+        )}
+      </Tarjeta>
+
+      <Tarjeta titulo="Historial">
+        <ol className="space-y-3">
+          {d.historial.map((h, n) => (
+            <li key={n} className="border-l-2 border-mist pl-4">
+              <p className="font-bold">
+                {h.estadoAnterior && h.estadoAnterior !== h.estadoNuevo ? `${ETIQUETA_DE_ESTADO[h.estadoAnterior]} → ` : ""}
+                {ETIQUETA_DE_ESTADO[h.estadoNuevo]}
+              </p>
+              <p className="text-xs text-slate">
+                {formatearFechaYHora(h.fecha)} · {ETIQUETA_DE_ACTOR[h.actor] ?? h.actor}: {h.actorNombre}
+              </p>
+              {h.motivo && <p className="text-sm text-slate">{h.motivo}</p>}
+            </li>
+          ))}
+        </ol>
+      </Tarjeta>
+
+      {resolviendo && (
+        <VentanaDeResolucion
+          onCerrar={() => setResolviendo(false)}
+          onConfirmar={async (resultado, motivo) => {
+            try {
+              await resolverServicio(d.id, resultado, motivo);
+              setResolviendo(false);
+              setAviso({ exito: true, mensaje: "Resolución registrada." });
+              await cargar();
+              return null;
+            } catch (e) {
+              if (e instanceof ErrorDeApi && e.codigo === "RESOLUCION_EXISTENTE") {
+                setResolviendo(false);
+                setAviso({ exito: false, mensaje: "Otro administrador ya resolvió esta solicitud. Se muestra su resolución." });
+                await cargar();
+                return null;
+              }
+              return e instanceof Error ? e.message : "No se pudo registrar la resolución";
+            }
           }}
         />
       )}
-      {/* Ventana de confirmación */}
-      {confirmacion && <VentanaDeConfirmacion titulo={confirmacion.titulo} lineasDeCambios={confirmacion.lineas} etiquetaDeConfirmar={confirmacion.etiqueta} onConfirmar={ejecutarAccion} onCancelar={() => setAccionPorConfirmar(null)} />}
-      {/* Resultado de la acción */}
       {aviso && <AvisoTemporal aviso={aviso} onTerminar={() => setAviso(null)} />}
     </div>
+  );
+}
+
+function VentanaDeResolucion({ onCerrar, onConfirmar }: { onCerrar: () => void; onConfirmar: (r: "REALIZADO" | "NO_REALIZADO", motivo: string) => Promise<string | null> }) {
+  const [resultado, setResultado] = useState<"REALIZADO" | "NO_REALIZADO" | "">("");
+  const [motivo, setMotivo] = useState("");
+  const [error, setError] = useState("");
+  const [enviando, setEnviando] = useState(false);
+
+  async function confirmar() {
+    const limpio = motivo.trim();
+    if (!resultado) return setError("Elige si el servicio se realizó o no.");
+    if (limpio.length < MOTIVO.min) return setError(`Escribe el motivo (mínimo ${MOTIVO.min} caracteres): queda en la auditoría.`);
+    setEnviando(true);
+    setError("");
+    const fallo = await onConfirmar(resultado, limpio);
+    setEnviando(false);
+    if (fallo) setError(fallo);
+  }
+
+  return (
+    <VentanaModal idDelTitulo="titulo-resolucion" onCerrar={onCerrar} claseDeAncho="max-w-lg">
+      <h2 id="titulo-resolucion" className="text-2xl font-extrabold text-navy">
+        Resolver el servicio
+      </h2>
+      <p className="mt-2 text-sm text-slate">
+        «Realizado» lo da por realizado; «No realizado» lo cancela. Los reportes activos quedarán resueltos. Es definitivo: no se podrá corregir desde el panel. No se registra ningún pago.
+      </p>
+      <fieldset className="mt-5 space-y-2 text-sm text-navy">
+        <legend className="sr-only">Resultado del servicio</legend>
+        {(["REALIZADO", "NO_REALIZADO"] as const).map((r) => (
+          <label key={r} className="flex cursor-pointer items-center gap-2">
+            <input type="radio" name="resultado" checked={resultado === r} onChange={() => setResultado(r)} />
+            {r === "REALIZADO" ? "Realizado" : "No realizado (se cancela)"}
+          </label>
+        ))}
+      </fieldset>
+      <div className="mt-5">
+        <CampoDeFormulario id="motivo-resolucion" etiqueta="Motivo (queda en la auditoría)" error={error}>
+          <textarea id="motivo-resolucion" rows={3} maxLength={MOTIVO.max} value={motivo} onChange={(e) => setMotivo(e.target.value)} className="field resize-y" />
+        </CampoDeFormulario>
+        <p className="mt-1.5 text-right text-xs text-slate">
+          {motivo.trim().length}/{MOTIVO.max}
+        </p>
+      </div>
+      <div className="mt-5 flex justify-end gap-3">
+        <button onClick={onCerrar} className="btn btn-quiet" disabled={enviando}>
+          Cancelar
+        </button>
+        <button onClick={() => void confirmar()} className="btn btn-primary" disabled={enviando}>
+          {enviando ? "Guardando…" : "Registrar resolución"}
+        </button>
+      </div>
+    </VentanaModal>
   );
 }

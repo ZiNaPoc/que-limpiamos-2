@@ -88,16 +88,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _loading = true);
 
     try {
-      final user = await AuthApi.signup(
+      final sesion = await AuthApi.registro(
         nombre: nombre,
         correo: correo,
         telefono: telefono,
         password: contrasena,
-        rol: 'CLIENTE',
       );
       if (!mounted) return;
+      final user = sesion.usuario;
 
-      Session.instance.start(user);
+      await Session.instance.start(sesion);
+      if (!mounted) return;
       Haptics.success(context);
 
       // Va al inicio y quita Welcome, Login y Registro de la pila,

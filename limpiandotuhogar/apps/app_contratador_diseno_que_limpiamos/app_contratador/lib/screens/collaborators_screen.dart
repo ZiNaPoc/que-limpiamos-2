@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../navigation/app_routes.dart';
+import '../services/ciclo_api.dart';
+import '../services/historial_api.dart';
+import '../services/validaciones_contenido.dart';
+import '../widgets/buttons.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -13,18 +17,37 @@ import 'service_request_data.dart';
 
 class Collaborator {
   const Collaborator({
+    this.id,
     required this.nombre,
-    required this.inicio,
-    required this.fin,
-    required this.dias,
+    this.inicio,
+    this.fin,
+    this.dias,
     required this.especialidades,
+    this.promedio,
+    this.cantidadResenas = 0,
   });
 
+  /// Trabajador real de GET /api/cliente/trabajadores (activo y verificado).
+  factory Collaborator.desdeApi(TrabajadorSeleccionable t) => Collaborator(
+        id: t.id,
+        nombre: t.nombre,
+        especialidades: t.especialidades,
+        promedio: t.reputacion.promedio,
+        cantidadResenas: t.reputacion.cantidad,
+      );
+
+  final int? id;
   final String nombre;
-  final int inicio; // hora de entrada (formato 24 h)
-  final int fin; // hora de salida (formato 24 h)
-  final String dias;
+  final int? inicio; // hora de entrada (24 h); null si el backend no la da
+  final int? fin; // hora de salida (24 h)
+  final String? dias;
   final List<String> especialidades;
+
+  /// Promedio de reseñas válidas (null = sin calificaciones).
+  final double? promedio;
+  final int cantidadResenas;
+
+  bool get tieneHorario => inicio != null && fin != null;
 
   static String _hora(int h) {
     final h12 = h % 12 == 0 ? 12 : h % 12;
@@ -32,7 +55,7 @@ class Collaborator {
     return '$h12:00$periodo';
   }
 
-  String get horario => '${_hora(inicio)}-${_hora(fin)}';
+  String get horario => tieneHorario ? '${_hora(inicio!)}-${_hora(fin!)}' : 'Se confirma al solicitar';
 
   /// «AL» para «Ana López».
   String get iniciales {
@@ -57,55 +80,41 @@ class CollaboratorsScreen extends StatefulWidget {
 class _CollaboratorsScreenState extends State<CollaboratorsScreen> {
   static const List<String> filtros = ['Cualquier horario', 'Mañana', 'Tarde'];
 
-  // Datos de ejemplo, en lo que se agrega la base de datos
-  static const List<Collaborator> colaboradores = [
-    Collaborator(
-      nombre: 'Ana López',
-      inicio: 8,
-      fin: 15,
-      dias: 'Lunes-Sábado',
-      especialidades: ['Limpieza profunda', 'Cocina'],
-    ),
-    Collaborator(
-      nombre: 'Carlos Ruiz',
-      inicio: 9,
-      fin: 18,
-      dias: 'Lunes-Sábado',
-      especialidades: ['Limpieza regular', 'Baños'],
-    ),
-    Collaborator(
-      nombre: 'María Pérez',
-      inicio: 13,
-      fin: 20,
-      dias: 'Lunes-Viernes',
-      especialidades: ['Limpieza post-obra', 'Patio'],
-    ),
-    Collaborator(
-      nombre: 'Luis Hernández',
-      inicio: 7,
-      fin: 13,
-      dias: 'Lunes-Sábado',
-      especialidades: ['Limpieza regular', 'Recámaras'],
-    ),
-    Collaborator(
-      nombre: 'Sofía Ramírez',
-      inicio: 12,
-      fin: 19,
-      dias: 'Martes-Sábado',
-      especialidades: ['Limpieza profunda', 'Áreas comunes'],
-    ),
-  ];
+  List<Collaborator>? colaboradores;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargar();
+  }
+
+  Future<void> _cargar() async {
+    setState(() => _error = null);
+    try {
+      // Elegibles para ESTE servicio y ESTA fecha (especialidades y sin traslapes).
+      final cat = await Catalogo.obtener();
+      final lista = await HistorialApi.trabajadores(servicioId: cat.servicioId(widget.request.serviceTitle), fecha: widget.request.scheduledAt);
+      if (mounted) setState(() => colaboradores = lista.map(Collaborator.desdeApi).toList());
+    } catch (e) {
+      if (mounted) setState(() => _error = mensajeDeError(e));
+    }
+  }
 
   String filtro = filtros.first;
 
+  /// El filtro por horario solo aplica si el backend entrega horarios (hoy no).
+  bool get _hayHorarios => (colaboradores ?? const []).any((c) => c.tieneHorario);
+
   List<Collaborator> get _visibles {
+    final todos = colaboradores ?? const <Collaborator>[];
     switch (filtro) {
       case 'Mañana':
-        return colaboradores.where((c) => c.inicio < 12).toList();
+        return todos.where((c) => !c.tieneHorario || c.inicio! < 12).toList();
       case 'Tarde':
-        return colaboradores.where((c) => c.fin > 12).toList();
+        return todos.where((c) => !c.tieneHorario || c.fin! > 12).toList();
       default:
-        return colaboradores;
+        return todos;
     }
   }
 
@@ -143,23 +152,27 @@ class _CollaboratorsScreenState extends State<CollaboratorsScreen> {
               ),
             ],
             const SizedBox(height: 14),
-            ChoiceChips<String>(
-              options: filtros,
-              selected: filtro,
-              labelOf: (f) => f,
-              onSelected: (f) => setState(() => filtro = f),
-            ),
-            const SizedBox(height: 16),
+            if (_hayHorarios) ...[
+              ChoiceChips<String>(
+                options: filtros,
+                selected: filtro,
+                labelOf: (f) => f,
+                onSelected: (f) => setState(() => filtro = f),
+              ),
+              const SizedBox(height: 16),
+            ],
+            if (_error != null) NoticeBox.error(message: _error!, action: AppLinkButton(label: 'Reintentar', onPressed: _cargar)),
+            if (colaboradores == null && _error == null) const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator())),
             AnimatedSwitcher(
               duration: AppDurations.medium,
               child: Column(
                 key: ValueKey(filtro),
                 children: [
-                  if (visibles.isEmpty)
+                  if (colaboradores != null && visibles.isEmpty)
                     const EmptyState(
                       icon: Icons.person_search_outlined,
-                      title: 'No hay colaboradores en ese horario',
-                      message: 'Prueba con otro horario.',
+                      title: 'No hay colaboradores disponibles',
+                      message: 'Por ahora no hay colaboradores verificados. Puedes elegir la asignación automática.',
                     ),
                   for (var i = 0; i < visibles.length; i++)
                     Padding(
@@ -207,19 +220,19 @@ class _CollaboratorCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppText.heading),
-                const SizedBox(height: 2),
-                Text(
-                  'Horario: ${c.horario}',
-                  style: AppText.caption.copyWith(color: AppColors.inkSoft),
-                ),
-                const SizedBox(height: 6),
-                Pill(
-                  label: c.dias,
-                  icon: Icons.event_available_outlined,
-                  background: AppColors.mint,
-                  foreground: AppColors.successFg,
-                  dense: true,
-                ),
+                const SizedBox(height: 4),
+                EstrellasDeColaborador(promedio: c.promedio, cantidad: c.cantidadResenas),
+                if (c.tieneHorario) ...[
+                  const SizedBox(height: 2),
+                  Text('Horario: ${c.horario}', style: AppText.caption.copyWith(color: AppColors.inkSoft)),
+                ],
+                if (c.dias != null) ...[
+                  const SizedBox(height: 6),
+                  Pill(label: c.dias!, icon: Icons.event_available_outlined, background: AppColors.mint, foreground: AppColors.successFg, dense: true),
+                ] else if (c.especialidades.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(c.especialidades.join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.caption),
+                ],
               ],
             ),
           ),
@@ -227,6 +240,29 @@ class _CollaboratorCard extends StatelessWidget {
               color: AppColors.primaryStrong, size: 28),
         ],
       ),
+    );
+  }
+}
+
+/// Estrellas (escobas) con el promedio y la cantidad de reseñas; "Sin calificaciones" si no hay.
+class EstrellasDeColaborador extends StatelessWidget {
+  const EstrellasDeColaborador({super.key, required this.promedio, required this.cantidad, this.size = 16});
+
+  final double? promedio;
+  final int cantidad;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = promedio;
+    if (p == null) return Text('Sin calificaciones', style: AppText.caption);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        BroomRating(value: p.round(), size: size),
+        const SizedBox(width: 6),
+        Text('${p.toStringAsFixed(1)} ($cantidad)', style: AppText.caption.copyWith(color: AppColors.ink)),
+      ],
     );
   }
 }

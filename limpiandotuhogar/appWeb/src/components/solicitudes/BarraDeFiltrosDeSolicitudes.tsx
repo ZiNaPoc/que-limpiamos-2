@@ -1,217 +1,87 @@
-import { useState } from "react";
-import { tieneFiltrosActivos } from "../../utils/consultasDeSolicitudes";
-import type { FiltrosDeSolicitudes } from "../../data/tipos";
-import { CampoDeFormulario } from "../comunes/CampoDeFormulario";
+import { ETIQUETA_DE_ESTADO, ETIQUETA_DE_MODO, type EstadoApi, type FiltrosDeSupervision, type ModoApi } from "../../data/solicitudesAdmin";
 import { Icono } from "../comunes/Icono";
 
-type OpcionDeFiltro = {
-  valor: string;
-  etiqueta: string;
-};
-
-const OPCIONES_DE_ETAPA: OpcionDeFiltro[] = [
-  { valor: "todas", etiqueta: "Todas" },
-  { valor: "activas", etiqueta: "Activas" },
-  { valor: "Solicitud enviada", etiqueta: "Solicitud enviada" },
-  { valor: "Asignando colaborador", etiqueta: "Asignando colaborador" },
-  { valor: "Servicio confirmado", etiqueta: "Servicio confirmado" },
-  { valor: "Servicio en proceso", etiqueta: "Servicio en proceso" },
-  { valor: "Solicitud rechazada", etiqueta: "Solicitud rechazada" },
-  { valor: "Servicio finalizado", etiqueta: "Servicio finalizado" },
-  { valor: "Cancelada", etiqueta: "Cancelada" },
-];
-
-const OPCIONES_DE_FECHA_DEL_TRABAJO: OpcionDeFiltro[] = [
-  { valor: "todas", etiqueta: "Cualquier fecha" },
-  { valor: "hoy", etiqueta: "Hoy" },
-  { valor: "manana", etiqueta: "Mañana" },
-  { valor: "despues", etiqueta: "Después de mañana" },
-  { valor: "anteriores", etiqueta: "Anteriores" },
-];
-
-const OPCIONES_DE_FECHA_DE_SOLICITUD: OpcionDeFiltro[] = [
-  { valor: "todas", etiqueta: "Cualquier fecha" },
-  { valor: "hoy", etiqueta: "Hoy" },
-  { valor: "7dias", etiqueta: "Últimos 7 días" },
-];
-
-type SelectorDeFiltroProps = {
-  id: string;
-  etiqueta: string;
-  valorSeleccionado: string;
-  opciones: OpcionDeFiltro[];
-  onCambiar: (valor: string) => void;
-};
-
-function SelectorDeFiltro({
-  id,
-  etiqueta,
-  valorSeleccionado,
-  opciones,
-  onCambiar,
-}: SelectorDeFiltroProps) {
-  return (
-    <CampoDeFormulario id={id} etiqueta={etiqueta}>
-      <div className="relative">
-        <select
-          id={id}
-          value={valorSeleccionado}
-          onChange={(evento) => onCambiar(evento.target.value)}
-          className="field cursor-pointer appearance-none pr-10"
-        >
-          {opciones.map((opcion) => (
-            <option key={opcion.valor} value={opcion.valor}>
-              {opcion.etiqueta}
-            </option>
-          ))}
-        </select>
-
-        <Icono
-          nombre="flechaAbajo"
-          className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate"
-        />
-      </div>
-    </CampoDeFormulario>
-  );
-}
-
 type BarraDeFiltrosDeSolicitudesProps = {
-  filtros: FiltrosDeSolicitudes;
-  totalDeSolicitudes: number;
-  solicitudesVisibles: number;
-  onCambiarFiltros: (filtros: FiltrosDeSolicitudes) => void;
+  filtros: FiltrosDeSupervision;
+  total: number;
+  visibles: number;
+  onCambiarFiltros: (filtros: FiltrosDeSupervision) => void;
   onRestablecerFiltros: () => void;
 };
 
-// Búsqueda y filtros de la lista de solicitudes
-export function BarraDeFiltrosDeSolicitudes({
-  filtros,
-  totalDeSolicitudes,
-  solicitudesVisibles,
-  onCambiarFiltros,
-  onRestablecerFiltros,
-}: BarraDeFiltrosDeSolicitudesProps) {
-  // Los filtros avanzados se abren solos si ya hay alguno puesto
-  const [filtrosAvanzadosVisibles, setFiltrosAvanzadosVisibles] =
-    useState(false);
+const ESTADOS = Object.keys(ETIQUETA_DE_ESTADO) as EstadoApi[];
+const MODOS = Object.keys(ETIQUETA_DE_MODO) as ModoApi[];
 
-  const hayFiltrosActivos = tieneFiltrosActivos(filtros);
+// Filtros que se mandan al backend (GET /api/admin/solicitudes): estado, modo, fechas del servicio,
+// búsqueda (id, cliente, correo, colaborador, servicio o dirección) y «requieren atención».
+export function BarraDeFiltrosDeSolicitudes({ filtros, total, visibles, onCambiarFiltros, onRestablecerFiltros }: BarraDeFiltrosDeSolicitudesProps) {
+  const cambiar = <K extends keyof FiltrosDeSupervision>(campo: K, valor: FiltrosDeSupervision[K]) => onCambiarFiltros({ ...filtros, [campo]: valor });
+  const hayFiltros = Boolean(filtros.estado || filtros.modo || filtros.busqueda.trim() || filtros.desde || filtros.hasta || filtros.atencion);
 
   return (
-    <section
-      aria-label="Búsqueda y filtros"
-      className="leaf-sm surface p-5 sm:p-6"
-    >
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-        <div className="relative flex-1">
-          <Icono
-            nombre="buscar"
-            className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate"
-          />
-
-          <input
-            type="search"
-            value={filtros.busqueda}
-            onChange={(evento) =>
-              onCambiarFiltros({
-                ...filtros,
-                busqueda: evento.target.value,
-              })
-            }
-            placeholder="Buscar por ID, cliente, servicio, dirección o colaborador"
-            aria-label="Buscar solicitudes"
-            className="field pl-11"
-          />
-        </div>
+    <div className="surface leaf-sm p-5">
+      <div className="flex flex-wrap items-end gap-4">
+        <label className="min-w-[14rem] flex-1">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate">Buscar</span>
+          <span className="relative block">
+            <Icono nombre="buscar" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate" />
+            <input
+              type="search"
+              value={filtros.busqueda}
+              onChange={(e) => cambiar("busqueda", e.target.value)}
+              placeholder="Id, cliente, correo, colaborador, servicio o dirección"
+              maxLength={100}
+              className="field pl-10"
+            />
+          </span>
+        </label>
+        <label>
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate">Estado</span>
+          <select value={filtros.estado} onChange={(e) => cambiar("estado", e.target.value as EstadoApi | "")} className="field">
+            <option value="">Todos</option>
+            {ESTADOS.map((e) => (
+              <option key={e} value={e}>
+                {ETIQUETA_DE_ESTADO[e]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate">Asignación</span>
+          <select value={filtros.modo} onChange={(e) => cambiar("modo", e.target.value as ModoApi | "")} className="field">
+            <option value="">Todas</option>
+            {MODOS.map((m) => (
+              <option key={m} value={m}>
+                {ETIQUETA_DE_MODO[m]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate">Servicio desde</span>
+          <input type="date" value={filtros.desde} onChange={(e) => cambiar("desde", e.target.value)} className="field" />
+        </label>
+        <label>
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate">Hasta</span>
+          <input type="date" value={filtros.hasta} onChange={(e) => cambiar("hasta", e.target.value)} className="field" />
+        </label>
       </div>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        {OPCIONES_DE_ETAPA.map((opcion) => {
-          const seleccionada = filtros.etapa === opcion.valor;
-
-          return (
-            <button
-              key={opcion.valor}
-              onClick={() =>
-                onCambiarFiltros({
-                  ...filtros,
-                  etapa: opcion.valor as FiltrosDeSolicitudes["etapa"],
-                })
-              }
-              aria-pressed={seleccionada}
-              className={`cursor-pointer rounded-full px-4 py-2 text-xs font-bold transition duration-300 ${
-                seleccionada
-                  ? "bg-navy text-white"
-                  : "bg-beige text-storm hover:bg-sky/50"
-              }`}
-            >
-              {opcion.etiqueta}
-            </button>
-          );
-        })}
-      </div>
-
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <button
-          onClick={() => setFiltrosAvanzadosVisibles(!filtrosAvanzadosVisibles)}
-          aria-expanded={filtrosAvanzadosVisibles}
-          aria-controls="filtros-avanzados"
-          className="inline-flex cursor-pointer items-center gap-2 rounded-full px-3 py-2 text-sm font-bold text-lagoon transition duration-300 hover:bg-sky/50"
-        >
-          <Icono nombre="filtros" className="h-4 w-4" />
-          {filtrosAvanzadosVisibles ? "Menos filtros" : "Más filtros"}
-        </button>
-
-        <p className="text-sm text-slate">
-          Mostrando <strong className="text-navy">{solicitudesVisibles}</strong>{" "}
-          de {totalDeSolicitudes} solicitudes
-        </p>
+        <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-bold text-navy">
+          <input type="checkbox" checked={filtros.atencion} onChange={(e) => cambiar("atencion", e.target.checked)} className="h-4 w-4 accent-[var(--color-navy,#14213d)]" />
+          Solo las que requieren atención
+        </label>
+        <div className="flex items-center gap-3 text-sm text-slate">
+          <span>
+            {visibles} de {total} solicitudes
+          </span>
+          {hayFiltros && (
+            <button onClick={onRestablecerFiltros} className="btn btn-quiet">
+              <Icono nombre="restablecer" /> Quitar filtros
+            </button>
+          )}
+        </div>
       </div>
-
-      {filtrosAvanzadosVisibles && (
-        <div
-          id="filtros-avanzados"
-          className="fade mt-3 border-t border-mist pt-5"
-        >
-          <div className="grid gap-4 sm:grid-cols-3">
-            <SelectorDeFiltro
-              id="filtro-fecha-del-trabajo"
-              etiqueta="Fecha del trabajo"
-              valorSeleccionado={filtros.fechaDelTrabajo}
-              opciones={OPCIONES_DE_FECHA_DEL_TRABAJO}
-              onCambiar={(valor) =>
-                onCambiarFiltros({
-                  ...filtros,
-                  fechaDelTrabajo:
-                    valor as FiltrosDeSolicitudes["fechaDelTrabajo"],
-                })
-              }
-            />
-            <SelectorDeFiltro
-              id="filtro-fecha-de-solicitud"
-              etiqueta="Fecha de solicitud"
-              valorSeleccionado={filtros.fechaDeSolicitud}
-              opciones={OPCIONES_DE_FECHA_DE_SOLICITUD}
-              onCambiar={(valor) =>
-                onCambiarFiltros({
-                  ...filtros,
-                  fechaDeSolicitud:
-                    valor as FiltrosDeSolicitudes["fechaDeSolicitud"],
-                })
-              }
-            />
-          </div>
-        </div>
-      )}
-
-      {hayFiltrosActivos && (
-        <div className="mt-4 flex justify-end">
-          <button onClick={onRestablecerFiltros} className="btn btn-quiet">
-            <Icono nombre="restablecer" className="h-4 w-4" />
-            Restablecer filtros
-          </button>
-        </div>
-      )}
-    </section>
+    </div>
   );
 }

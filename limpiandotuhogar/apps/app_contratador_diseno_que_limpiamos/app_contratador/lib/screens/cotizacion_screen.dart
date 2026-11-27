@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/service_catalog.dart';
 import '../navigation/app_routes.dart';
+import '../services/ciclo_api.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/buttons.dart';
@@ -21,10 +22,42 @@ import 'service_request_data.dart';
 ///    `null`).
 ///
 /// «Continuar al pago» lleva a [PagoScreen].
-class CotizacionScreen extends StatelessWidget {
+///
+/// El precio y la duración los calcula el SERVIDOR (POST /api/cliente/cotizaciones, D4): la
+/// cotización no crea nada. Mientras no llegue, no se puede continuar.
+class CotizacionScreen extends StatefulWidget {
   const CotizacionScreen({super.key, required this.request});
 
   final ServiceRequestData request;
+
+  @override
+  State<CotizacionScreen> createState() => _CotizacionScreenState();
+}
+
+class _CotizacionScreenState extends State<CotizacionScreen> {
+  late ServiceRequestData request = widget.request;
+  Cotizacion? _cotizacion;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _cotizar();
+  }
+
+  Future<void> _cotizar() async {
+    setState(() => _error = null);
+    try {
+      final c = await CicloApi.cotizar(widget.request);
+      if (!mounted) return;
+      setState(() {
+        _cotizacion = c;
+        request = widget.request.copyWith(precioServidor: c.total.round());
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = mensajeDelCiclo(e));
+    }
+  }
 
   void _continuarAlPago(BuildContext context) {
     AppRoutes.push(context, PagoScreen(request: request));
@@ -97,16 +130,21 @@ class CotizacionScreen extends StatelessWidget {
             const SizedBox(height: 14),
 
             // PRECIO ESTIMADO + DESGLOSE
-            FadeSlideIn(
-              delay: FadeSlideIn.stagger(2),
-              child: _PrecioPanel(request: request),
-            ),
+            if (_error != null)
+              NoticeBox.error(message: _error!, action: AppLinkButton(label: 'Reintentar', onPressed: _cotizar))
+            else if (_cotizacion == null)
+              const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
+            else
+              FadeSlideIn(
+                delay: FadeSlideIn.stagger(2),
+                child: _PrecioPanel(request: request, cotizacion: _cotizacion!),
+              ),
             const SizedBox(height: 12),
 
             // AVISO
             const NoticeBox.success(
               message:
-                  'El precio final lo confirma tu colaborador al revisar el servicio.',
+                  'El precio lo calcula QueLimpiamos (servicio + extras). Pagas en efectivo al terminar.',
             ),
             const SizedBox(height: 22),
 
@@ -114,7 +152,7 @@ class CotizacionScreen extends StatelessWidget {
             AppButton(
               label: 'Continuar al pago',
               icon: Icons.payments_outlined,
-              onPressed: () => _continuarAlPago(context),
+              onPressed: _cotizacion == null ? null : () => _continuarAlPago(context),
             ),
             const SizedBox(height: 12),
             AppButton(
@@ -165,7 +203,7 @@ class _ColaboradorCard extends StatelessWidget {
                 Text(manual ? 'Tu colaborador' : 'Colaborador',
                     style: AppText.caption),
                 Text(
-                  manual ? nombre : 'Asignación automática',
+                  manual ? nombre : 'Bolsa abierta',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppText.heading,
@@ -174,7 +212,7 @@ class _ColaboradorCard extends StatelessWidget {
                 Text(
                   manual
                       ? 'Le enviaremos tu solicitud para que la confirme.'
-                      : 'Te asignaremos a alguien disponible en tu horario.',
+                      : 'La verán los colaboradores disponibles; el primero que acepte la atiende.',
                   style: AppText.caption.copyWith(color: AppColors.inkSoft),
                 ),
               ],
@@ -194,25 +232,26 @@ class _ColaboradorCard extends StatelessWidget {
   }
 }
 
-/// Precio estimado con desglose (servicio + áreas, extras y margen de ajuste).
+/// Precio del SERVIDOR con su desglose (servicio + extras, D4).
 class _PrecioPanel extends StatelessWidget {
-  const _PrecioPanel({required this.request});
+  const _PrecioPanel({required this.request, required this.cotizacion});
 
   final ServiceRequestData request;
+  final Cotizacion cotizacion;
 
   @override
   Widget build(BuildContext context) {
-    final min = request.priceMin;
-    final max = request.priceMax;
-    final extras = request.extrasTotal;
-    final nAreas = request.areas.length;
+    final total = cotizacion.total.round();
+    final extras = cotizacion.extras.round();
+    final base = cotizacion.base.round();
+    final horas = (cotizacion.duracionMin / 60).toStringAsFixed(cotizacion.duracionMin % 60 == 0 ? 0 : 1);
 
     return HeroPanel(
       seed: 11,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Precio estimado',
+          Text('Precio',
               style: AppText.bodyStrong.copyWith(color: AppColors.ice)),
           const SizedBox(height: 4),
           FittedBox(
@@ -220,7 +259,7 @@ class _PrecioPanel extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: Text.rich(
               TextSpan(
-                text: '${money(min)}-${money(max).substring(1)}',
+                text: money(total),
                 style: AppText.display
                     .copyWith(color: Colors.white, fontSize: 34),
                 children: [
@@ -234,7 +273,7 @@ class _PrecioPanel extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Calculado según el tipo de limpieza y las áreas elegidas.',
+            'Calculado por QueLimpiamos. Duración estimada: $horas h.',
             style: AppText.caption.copyWith(color: AppColors.frost),
           ),
           const SizedBox(height: 14),
@@ -247,21 +286,17 @@ class _PrecioPanel extends StatelessWidget {
             child: Column(
               children: [
                 _LineaPrecio(
-                  'Limpieza y áreas ($nAreas)',
-                  money(min - extras),
+                  request.serviceTitle,
+                  money(base),
                 ),
                 _LineaPrecio(
                   'Servicios extra',
                   extras > 0 ? money(extras) : r'$0',
                 ),
-                _LineaPrecio(
-                  'Posible ajuste',
-                  '+ ${money(max - min)}',
-                ),
                 const Divider(height: 14, color: AppColors.divider),
                 _LineaPrecio(
-                  'Total estimado',
-                  '${money(min)}-${money(max).substring(1)}',
+                  'Total (efectivo)',
+                  money(total),
                   fuerte: true,
                 ),
               ],

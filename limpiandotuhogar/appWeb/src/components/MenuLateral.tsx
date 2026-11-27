@@ -3,14 +3,18 @@ import { useAtrapaFoco } from "../hooks/useAtrapaFoco";
 import type { Navegar, Sesion, VistaDelPanel } from "../data/tipos";
 import { Icono, type NombreDeIcono } from "./comunes/Icono";
 import { Logotipo, TituloDeMarca } from "./comunes/FormasOrganicas";
+import { usePermisos, type PermisoDeAdmin } from "../data/permisos";
 
-const OPCIONES_DE_NAVEGACION: { idDeVista: VistaDelPanel; etiqueta: string; icono: NombreDeIcono }[] = [
+// requiere: la opción solo se muestra con ese permiso EFECTIVO (el backend responde 403 igual).
+const TODAS_LAS_OPCIONES: { idDeVista: VistaDelPanel; etiqueta: string; icono: NombreDeIcono; requiere?: PermisoDeAdmin }[] = [
   { idDeVista: "inicio", etiqueta: "Inicio", icono: "inicio" },
-  { idDeVista: "solicitudes", etiqueta: "Solicitudes", icono: "bandeja" },
+  { idDeVista: "solicitudes", etiqueta: "Solicitudes", icono: "bandeja", requiere: "SUPERVISAR_SOLICITUDES" },
   { idDeVista: "clientes", etiqueta: "Clientes", icono: "clientes" },
   { idDeVista: "trabajadores", etiqueta: "Colaboradores", icono: "trabajadores" },
   { idDeVista: "catalogo", etiqueta: "Catálogo", icono: "catalogo" },
   { idDeVista: "resenas", etiqueta: "Reseñas", icono: "estrella" },
+  { idDeVista: "reportes", etiqueta: "Reportes", icono: "reportes" },
+  { idDeVista: "permisos", etiqueta: "Permisos", icono: "candado", requiere: "ADMINISTRAR_PERMISOS" },
 ];
 
 const ALTURA_DE_CADA_OPCION_EN_REM = 3.5;
@@ -61,6 +65,8 @@ type MenuLateralProps = {
 
 // Menú del panel: se expande al pasar el cursor o con el teclado
 export function MenuLateral({ sesion, vistaActiva, esCompacto, cajonAbierto, onNavegar, onCerrarCajon, onIrAQuienesSomos, onCerrarSesion }: MenuLateralProps) {
+  const { tiene } = usePermisos();
+  const OPCIONES_DE_NAVEGACION = TODAS_LAS_OPCIONES.filter((opcion) => !opcion.requiere || tiene(opcion.requiere));
   const [cursorSobreElMenu, setCursorSobreElMenu] = useState(false);
   const [menuTieneFocoDeTeclado, setMenuTieneFocoDeTeclado] = useState(false);
   // En pantallas chicas funciona como cajón y atrapa el foco

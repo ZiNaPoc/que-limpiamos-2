@@ -444,7 +444,7 @@ class PriceBar extends StatelessWidget {
                     alignment: Alignment.centerLeft,
                     child: Text.rich(
                       TextSpan(
-                        text: '${money(min)}-${money(max).substring(1)}',
+                        text: min == max ? money(min) : '${money(min)}-${money(max).substring(1)}',
                         style: AppText.title.copyWith(fontSize: 24),
                         children: [
                           TextSpan(

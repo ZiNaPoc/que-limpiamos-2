@@ -177,10 +177,12 @@ export type AperturaDelPanel = {
   idDeSolicitud?: string | null;
   idDelCliente?: string | null;
   filtroDeVerificacion?: FiltroDeVerificacion;
+  // Abrir Solicitudes filtradas por «requieren atención».
+  soloAtencion?: boolean;
 };
 
 // Pantallas del panel de administración (cada una es un botón del menú lateral; "perfil" se abre desde la foto).
-export type VistaDelPanel = "inicio" | "perfil" | "solicitudes" | "trabajadores" | "catalogo" | "clientes" | "resenas";
+export type VistaDelPanel = "inicio" | "perfil" | "solicitudes" | "trabajadores" | "catalogo" | "clientes" | "resenas" | "reportes" | "permisos";
 
 // Función para cambiar de pantalla dentro del panel. La define DashboardPage y la reciben las demás pantallas como onNavegar.
 export type Navegar = (vista: VistaDelPanel, apertura?: AperturaDelPanel) => void;
@@ -221,6 +223,15 @@ export type SolicitudListado = {
     nombre:string;
     estado: 'ACTIVO' | 'INACTIVO';
   } | null;
+};
+
+// Detalle de una solicitud: lo del listado más los datos que solo trae la consulta de detalle.
+// PENDIENTE: el backend aún no tiene GET /api/admin/solicitudes/:id (Fase 5). Mientras tanto estos campos
+// son opcionales y la pantalla muestra "sin dato" en vez de inventarlos.
+export type SolicitudDetalle = SolicitudListado & {
+  modoDeEleccion?: ModoDeEleccionDelColaborador;
+  cancelacion?: Cancelacion | null;
+  evidencias?: EvidenciaFotografica[];
 };
 
 export type FiltrosDeSolicitudes ={

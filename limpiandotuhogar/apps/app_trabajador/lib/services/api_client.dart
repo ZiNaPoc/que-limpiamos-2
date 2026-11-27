@@ -6,10 +6,13 @@ import 'package:http/http.dart' as http;
 
 /// Error legible para mostrar en pantalla (NoticeBox, toast, etc.).
 class ApiException implements Exception {
-  ApiException(this.message, {this.statusCode});
+  ApiException(this.message, {this.statusCode, this.codigo});
 
   final String message;
   final int? statusCode;
+
+  /// Código del backend (p. ej. CREDENCIALES_INVALIDAS, DEMASIADOS_INTENTOS).
+  final String? codigo;
 
   @override
   String toString() => message;
@@ -28,12 +31,19 @@ class ApiClient {
 
   static const Duration _timeout = Duration(seconds: 12);
 
-  /// Pon en `false` cuando termines de depurar para silenciar los logs.
-  static const bool _debug = true;
+  /// Registro de peticiones solo en modo depuración (nunca en la app publicada).
+  static const bool _debug = kDebugMode;
+
+  /// Token de la sesión (lo pone Session). Se envía como `Authorization: Bearer`.
+  static String? token;
+
+  /// Se llama cuando una petición CON token responde 401: la sesión venció o
+  /// la contraseña cambió. La app borra la sesión y vuelve a la bienvenida.
+  static void Function()? onSesionVencida;
 
   static Future<dynamic> get(String path) => _request('GET', path);
 
-  static Future<dynamic> post(String path, Map<String, dynamic> body) =>
+  static Future<dynamic> post(String path, [Map<String, dynamic>? body]) =>
       _request('POST', path, body: body);
 
   static Future<dynamic> patch(String path, Map<String, dynamic> body) =>
@@ -49,20 +59,23 @@ class ApiClient {
     Map<String, dynamic>? body,
   }) async {
     final uri = Uri.parse('$baseUrl$path');
-    final headers = {'Content-Type': 'application/json'};
+    final conToken = token != null;
+    final headers = {
+      'Content-Type': 'application/json',
+      if (conToken) 'Authorization': 'Bearer $token',
+    };
 
     _log('[api] → $method $uri ${body == null ? '' : _redact(body)}');
 
     try {
       final response = await (switch (method) {
-        'POST' => http.post(uri, headers: headers, body: jsonEncode(body)),
+        'POST' => http.post(uri, headers: headers, body: jsonEncode(body ?? {})),
         'PATCH' => http.patch(uri, headers: headers, body: jsonEncode(body)),
         _ => http.get(uri, headers: headers),
       })
           .timeout(_timeout);
 
-      _log(
-          '[api] ← ${response.statusCode} $method $path ${_short(response.body)}');
+      _log('[api] ← ${response.statusCode} $method $path ${_short(_sinToken(response.body))}');
 
       final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
 
@@ -70,14 +83,20 @@ class ApiClient {
         return decoded;
       }
 
-      // El backend responde { error: "..." } (o { message: "..." }).
+      // El backend responde { mensaje, codigo }.
       final message = decoded is Map
-          ? (decoded['error'] ?? decoded['mensaje'] ?? decoded['message'])
+          ? (decoded['mensaje'] ?? decoded['error'] ?? decoded['message'])
               ?.toString()
           : null;
+      final codigo = decoded is Map ? decoded['codigo']?.toString() : null;
+
+      if (response.statusCode == 401 && conToken) {
+        onSesionVencida?.call();
+      }
       throw ApiException(
         message ?? 'Error del servidor (${response.statusCode}).',
         statusCode: response.statusCode,
+        codigo: codigo,
       );
     } on TimeoutException {
       _log('[api] TIMEOUT $method $uri');
@@ -86,18 +105,21 @@ class ApiClient {
       _log('[api] ClientException $method $uri: $e');
       throw ApiException('No se pudo conectar con el servidor.');
     } on FormatException catch (e) {
-      // Pasa, por ejemplo, cuando el backend devuelve HTML ("Cannot POST /x")
-      // en lugar de JSON.
+      // Pasa, por ejemplo, cuando el backend devuelve HTML en lugar de JSON.
       _log('[api] FormatException $method $uri: $e');
       throw ApiException('Respuesta inválida del servidor.');
     }
   }
 
-  /// Oculta la contraseña en los logs.
+  /// Oculta contraseñas en los logs.
   static Map<String, dynamic> _redact(Map<String, dynamic> body) => {
         for (final e in body.entries)
           e.key: e.key.toLowerCase().contains('password') ? '***' : e.value,
       };
+
+  /// Oculta el token en los logs de las respuestas.
+  static String _sinToken(String s) =>
+      s.replaceAll(RegExp(r'"token"\s*:\s*"[^"]*"'), '"token":"***"');
 
   /// Recorta respuestas largas para no llenar la consola.
   static String _short(String s) =>
@@ -105,7 +127,7 @@ class ApiClient {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// Auth
+// Auth — /api/trabajador/auth (contrato en docs/backend/06_CONTRATOS_API.md)
 // ════════════════════════════════════════════════════════════════════
 
 class ApiUser {
@@ -115,13 +137,15 @@ class ApiUser {
     required this.correo,
     required this.rol,
     this.telefono,
+    this.direccion,
   });
 
   final int id;
   final String nombre;
   final String correo;
-  final String rol; // 'CLIENTE' | 'TRABAJADOR'
+  final String rol; // 'TRABAJADOR'
   final String? telefono;
+  final String? direccion;
 
   factory ApiUser.fromJson(Map<String, dynamic> json) => ApiUser(
         id: json['id'] as int,
@@ -129,38 +153,62 @@ class ApiUser {
         correo: json['correo'] as String,
         rol: json['rol'] as String,
         telefono: json['telefono'] as String?,
+        direccion: json['direccion'] as String?,
       );
 }
+
+/// Resultado de iniciar sesión o registrarse: el token y la cuenta.
+typedef SesionIniciada = ({String token, ApiUser usuario});
 
 class AuthApi {
   AuthApi._();
 
-  static Future<ApiUser> login({
-    required String correo,
+  static const _base = '/api/trabajador/auth';
+
+  static SesionIniciada _sesion(dynamic data) => (
+        token: data['token'] as String,
+        usuario: ApiUser.fromJson(data['trabajador'] as Map<String, dynamic>),
+      );
+
+  /// [identificador]: correo o teléfono de 10 dígitos.
+  static Future<SesionIniciada> login({
+    required String identificador,
     required String password,
   }) async {
-    final data = await ApiClient.post('/login', {
-      'correo': correo.trim(),
+    final limpio = identificador.trim();
+    final soloDigitos = limpio.replaceAll(RegExp(r'[\s\-()]'), '');
+    final esTelefono = RegExp(r'^(\+52)?\d{10}$').hasMatch(soloDigitos);
+    final data = await ApiClient.post('$_base/login', {
+      if (esTelefono) 'telefono': soloDigitos else 'correo': limpio,
       'password': password,
     });
-    return ApiUser.fromJson(data['estrella'] as Map<String, dynamic>);
+    return _sesion(data);
   }
 
-  /// [rol]: 'CLIENTE' (default del backend) o 'TRABAJADOR'.
-  static Future<ApiUser> signup({
+  static Future<SesionIniciada> registro({
     required String nombre,
     required String correo,
     required String telefono,
+    required String direccion,
     required String password,
-    String? rol,
   }) async {
-    final data = await ApiClient.post('/signup', {
+    final data = await ApiClient.post('$_base/registro', {
       'nombre': nombre.trim(),
       'correo': correo.trim(),
       'telefono': telefono.trim(),
+      'direccion': direccion.trim(),
       'password': password,
-      if (rol != null) 'rol': rol,
     });
-    return ApiUser.fromJson(data['estrella'] as Map<String, dynamic>);
+    return _sesion(data);
+  }
+
+  /// Cuenta de la sesión actual (para restaurarla al abrir la app).
+  static Future<ApiUser> me() async {
+    final data = await ApiClient.get('$_base/me');
+    return ApiUser.fromJson(data['trabajador'] as Map<String, dynamic>);
+  }
+
+  static Future<void> logout() async {
+    await ApiClient.post('$_base/logout');
   }
 }

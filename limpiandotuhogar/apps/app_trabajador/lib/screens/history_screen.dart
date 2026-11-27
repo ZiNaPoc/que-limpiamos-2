@@ -14,6 +14,7 @@ import 'earnings_screen.dart';
 import 'main_shell.dart';
 import 'rate_client_screen.dart';
 import 'request_detail_screen.dart';
+import 'servicios_resenas_screens.dart';
 
 enum _HistoryTab { realizados, noConcretados }
 
@@ -46,6 +47,30 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ScreenHeader(
           title: 'Historial',
           onBack: () => MainShell.of(context)?.goTo(MainShellState.tabHome),
+        ),
+        const SizedBox(height: 12),
+        // Fase 3b: servicios REALES del backend, con calificar, reportar y reputación del cliente.
+        AppCard(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          onTap: () => AppRoutes.push(context, const MisServiciosScreen()),
+          child: const Row(
+            children: [
+              Icon(Icons.work_outline_rounded, color: AppColors.primaryStrong),
+              SizedBox(width: 12),
+              Expanded(child: Text('Mis servicios: calificar y reportar', style: AppText.bodyStrong)),
+              Icon(Icons.chevron_right_rounded, color: AppColors.primaryStrong),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ActionChip(avatar: const Icon(Icons.star_rounded, size: 18), label: const Text('Mi reputación'), onPressed: () => AppRoutes.push(context, const ResenasRecibidasScreen())),
+            ActionChip(avatar: const Icon(Icons.rate_review_outlined, size: 18), label: const Text('Reseñas que escribí'), onPressed: () => AppRoutes.push(context, const MisResenasScreen())),
+            ActionChip(avatar: const Icon(Icons.flag_outlined, size: 18), label: const Text('Mis reportes'), onPressed: () => AppRoutes.push(context, const MisReportesScreen())),
+          ],
         ),
         const SizedBox(height: 12),
         AppCard(

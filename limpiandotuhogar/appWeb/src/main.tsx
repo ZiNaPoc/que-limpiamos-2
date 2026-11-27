@@ -1,22 +1,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import { CatalogoProvider } from "./data/CatalogoContext";
-import { ClientesProvider } from "./data/ClientesContext";
-import { SolicitudesProvider } from "./data/SolicitudesProvider";
-import { TrabajadoresProvider } from "./data/TrabajadoresContext";
 import "./index.css";
 
+// Los datos del panel salen del backend real (docs/backend/27). SolicitudesProvider y PermisosProvider
+// los monta DashboardPage, para pedir datos solo cuando ya hay sesión.
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ClientesProvider>
-      <TrabajadoresProvider>
-        <SolicitudesProvider>
-          <CatalogoProvider>
-            <App />
-          </CatalogoProvider>
-        </SolicitudesProvider>
-      </TrabajadoresProvider>
-    </ClientesProvider>
+    <App />
   </StrictMode>,
 );

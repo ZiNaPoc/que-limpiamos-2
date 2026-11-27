@@ -11,13 +11,14 @@ void main() {
   AppState newState() => AppState(clock: () => fixedNow);
 
   group('Flujo completo de una solicitud', () {
-    test('aceptar → proponer → acuerdo → confirmar → iniciar → finalizar', () {
+    // acceptOpportunity es asíncrona (Future<String?>): se espera su resultado (E1, doc 26).
+    test('aceptar → proponer → acuerdo → confirmar → iniciar → finalizar', () async {
       final s = newState();
       final r = s.byId('r1')!;
       expect(r.status, RequestStatus.disponible);
       final availableBefore = s.availableRequests.length;
 
-      expect(s.acceptOpportunity('r1'), isNull);
+      expect(await s.acceptOpportunity('r1'), isNull);
       expect(r.status, RequestStatus.enNegociacion);
       expect(s.availableRequests.length, availableBefore - 1);
       expect(s.negotiatingRequests.contains(r), isTrue);
@@ -66,10 +67,10 @@ void main() {
   });
 
   group('Reglas de negocio', () {
-    test('sin disponibilidad no se puede aceptar', () {
+    test('sin disponibilidad no se puede aceptar', () async {
       final s = newState()..setOnline(false);
       expect(s.canAccept(s.byId('r2')!).allowed, isFalse);
-      expect(s.acceptOpportunity('r2'), isNotNull);
+      expect(await s.acceptOpportunity('r2'), isNotNull);
     });
 
     test('no se puede proponer sin aceptar primero', () {

@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Para tomar fotos de evidencia al reportar un problema con un servicio.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Para adjuntar fotos de evidencia al reportar un problema con un servicio.</string>
 </dict>
 </plist>

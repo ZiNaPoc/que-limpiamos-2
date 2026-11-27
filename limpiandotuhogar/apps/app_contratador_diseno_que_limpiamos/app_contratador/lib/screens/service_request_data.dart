@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
-/// Datos del inmueble que captura «Datos del inmueble»
-/// (se guardan en la tabla `galaxias` del backend).
+/// Datos del inmueble que captura «Datos del inmueble». La solicitud guarda su PROPIA copia
+/// (docs/backend/25 v2 §3): con [inmuebleId] se usa uno de «Mis inmuebles»; si no, se manda
+/// el inmueble capturado y, con [guardarComo], además se guarda en «Mis inmuebles».
 class PropertyData {
   const PropertyData({
     this.type = 'Casa',
@@ -10,7 +11,19 @@ class PropertyData {
     this.halfBaths = 0,
     this.floors = 1,
     this.address = '',
+    this.inmuebleId,
+    this.alias,
+    this.guardarComo,
   });
+
+  /// Inmueble guardado elegido (null = capturado en el formulario).
+  final int? inmuebleId;
+
+  /// Nombre del inmueble guardado (solo para mostrarlo).
+  final String? alias;
+
+  /// Si no es null, el inmueble capturado también se guarda con este nombre.
+  final String? guardarComo;
 
   final String type; // 'Casa' | 'Oficina' | 'Departamento'
   final int rooms;
@@ -47,6 +60,7 @@ class ServiceRequestData {
     this.date,
     this.time,
     this.collaborator,
+    this.collaboratorId,
   });
 
   final String serviceTitle;
@@ -66,23 +80,30 @@ class ServiceRequestData {
   final TimeOfDay? time;
   final String? collaborator; // solo si lo eligió personalmente
 
+  /// Id del colaborador elegido (se le manda la invitación). null = bolsa.
+  final int? collaboratorId;
+
   ServiceRequestData copyWith({
     DateTime? date,
     TimeOfDay? time,
     String? collaborator,
+    int? collaboratorId,
+    int? precioServidor,
   }) {
     return ServiceRequestData(
       serviceTitle: serviceTitle,
       areas: areas,
       extras: extras,
       notes: notes,
-      priceMin: priceMin,
-      priceMax: priceMax,
+      // El precio del SERVIDOR (D4) reemplaza la estimación de la app.
+      priceMin: precioServidor ?? priceMin,
+      priceMax: precioServidor ?? priceMax,
       extrasTotal: extrasTotal,
       property: property,
       date: date ?? this.date,
       time: time ?? this.time,
       collaborator: collaborator ?? this.collaborator,
+      collaboratorId: collaboratorId ?? this.collaboratorId,
     );
   }
 

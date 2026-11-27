@@ -1,201 +1,89 @@
-import {
-  describirHorario,
-  describirTiempoDesdeCreacion,
-} from "../../utils/formato";
+import { ETIQUETA_DE_ALERTA, ETIQUETA_DE_ESTADO, ETIQUETA_DE_MODO, type EstadoApi, type SolicitudEnLista } from "../../data/solicitudesAdmin";
+import { formatearFechaYHora } from "../../utils/fechasDeSolicitudes";
 
-import type { EtapaDeSolicitud, SolicitudListado } from "../../data/tipos";
-
-import { obtenerEtapaListado } from "../../utils/consultasDeSolicitudes";
-
-type ListaDeSolicitudesProps = {
-  solicitudes: SolicitudListado[];
-  ahora: Date;
-  claveDeHoy: string;
+const BORDE_POR_ESTADO: Record<EstadoApi, string> = {
+  PENDIENTE: "border-ochre",
+  CONFIRMADO: "border-lagoon",
+  EN_PROCESO: "border-steel",
+  REALIZADO: "border-sage",
+  CANCELADO: "border-frost",
+  RECHAZADO: "border-err",
 };
 
-const COLOR_DEL_BORDE_POR_ETAPA: Record<EtapaDeSolicitud, string> = {
-  "Solicitud enviada": "border-ochre",
-  "Asignando colaborador": "border-lagoon",
-  "Servicio confirmado": "border-steel",
-  "Servicio en proceso": "border-steel",
-  "Servicio finalizado": "border-sage",
-  Cancelada: "border-frost",
-  "Solicitud rechazada": "border-err",
-};
+export function InsigniaDeEstadoDeSolicitud({ estado }: { estado: EstadoApi }) {
+  return <span className="inline-flex whitespace-nowrap rounded-full bg-moon px-3 py-1 text-xs font-bold text-navy">{ETIQUETA_DE_ESTADO[estado]}</span>;
+}
 
-function InsigniaDeSeguimiento({ etapa }: { etapa: EtapaDeSolicitud }) {
+export function InsigniasDeAlerta({ alertas }: { alertas: SolicitudEnLista["alertas"] }) {
+  if (!alertas.length) return null;
   return (
-    <span className="inline-flex rounded-full bg-moon px-3 py-1 text-xs font-bold text-navy">
-      {etapa}
+    <span className="flex flex-wrap gap-1.5">
+      {alertas.map((a) => (
+        <span key={a} className="inline-flex whitespace-nowrap rounded-full bg-err/10 px-2.5 py-0.5 text-xs font-bold text-err">
+          {ETIQUETA_DE_ALERTA[a]}
+        </span>
+      ))}
     </span>
   );
 }
 
-// Muestra el colaborador asignado, o que falta asignar
-function NombreDelTrabajadorAsignado({
-  solicitud,
-}: {
-  solicitud: SolicitudListado;
-}) {
-  if (!solicitud.trabajador) {
-    return <span className="font-bold text-clay">Sin asignar</span>;
-  }
-  return (
-    <span>
-      {solicitud.trabajador.nombre}
-      <span className="block text-xs text-slate">
-        {solicitud.trabajador.estado === "ACTIVO" ? "Activo" : "Inactivo"}
-      </span>
-    </span>
-  );
+function Colaborador({ s }: { s: SolicitudEnLista }) {
+  if (s.trabajador) return <span className="font-bold text-navy">{s.trabajador.nombre}</span>;
+  if (s.modo === "BOLSA") return <span className="text-slate">En la bolsa</span>;
+  if (s.invitaciones.pendientes > 0) return <span className="text-slate">Invitación pendiente</span>;
+  if (s.invitaciones.rechazadas > 0) return <span className="font-bold text-clay">Invitación rechazada</span>;
+  return <span className="text-slate">—</span>;
 }
 
-// Nombre del cliente de la solicitud
-function DatosDelCliente({ solicitud }: { solicitud: SolicitudListado }) {
-  return (
-    <>
-      <span className="block font-bold text-navy">
-        {solicitud.cliente.nombre}
-      </span>
+type ListaDeSolicitudesProps = { solicitudes: SolicitudEnLista[]; onAbrir: (id: number) => void };
 
-      <span className="block text-xs text-slate">
-        {solicitud.cliente.telefono}
-      </span>
-    </>
-  );
-}
-
-// Tarjetas de solicitudes; al hacer clic se abre el detalle
-export function ListaDeSolicitudes({
-  solicitudes,
-  ahora,
-  claveDeHoy,
-}: ListaDeSolicitudesProps) {
+// Solicitudes REALES. Al hacer clic se abre su detalle (solo lectura, más la resolución).
+export function ListaDeSolicitudes({ solicitudes, onAbrir }: ListaDeSolicitudesProps) {
   return (
-    <>
-      <div className="surface leaf-sm hidden overflow-hidden md:block">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-moon/60 text-xs uppercase tracking-wider text-slate">
-            <tr>
-              <th scope="col" className="px-6 py-4 font-bold">
-                ID
-              </th>
-              <th scope="col" className="px-4 py-4 font-bold">
-                Cliente
-              </th>
-              <th scope="col" className="px-4 py-4 font-bold">
-                Servicio
-              </th>
-              <th scope="col" className="px-4 py-4 font-bold">
-                Horario
-              </th>
-              <th
-                scope="col"
-                className="hidden px-4 py-4 font-bold xl:table-cell"
-              >
-                Solicitada
-              </th>
-              <th
-                scope="col"
-                className="hidden px-4 py-4 font-bold lg:table-cell"
-              >
-                Colaborador
-              </th>
-              <th scope="col" className="px-6 py-4 font-bold">
-                Seguimiento
-              </th>
+    <div className="surface leaf-sm overflow-x-auto">
+      <table className="w-full min-w-[56rem] text-left text-sm">
+        <thead className="bg-moon/60 text-xs uppercase tracking-wider text-slate">
+          <tr>
+            <th scope="col" className="px-5 py-4 font-bold">Id</th>
+            <th scope="col" className="px-4 py-4 font-bold">Cliente</th>
+            <th scope="col" className="px-4 py-4 font-bold">Servicio</th>
+            <th scope="col" className="px-4 py-4 font-bold">Programada</th>
+            <th scope="col" className="px-4 py-4 font-bold">Asignación</th>
+            <th scope="col" className="px-4 py-4 font-bold">Colaborador</th>
+            <th scope="col" className="px-5 py-4 font-bold">Estado</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-mist/70">
+          {solicitudes.map((s) => (
+            <tr key={s.id} onClick={() => onAbrir(s.id)} className="cursor-pointer transition hover:bg-sky/25">
+              <td className={`border-l-4 px-5 py-4 ${BORDE_POR_ESTADO[s.estado]}`}>
+                <button onClick={() => onAbrir(s.id)} className="rounded-full bg-navy px-3 py-1 text-xs font-bold text-white" aria-label={`Abrir la solicitud ${s.id}`}>
+                  {s.id}
+                </button>
+              </td>
+              <td className="px-4 py-4">
+                <span className="block font-bold text-navy">{s.cliente.nombre}</span>
+                <span className="block text-xs text-slate">{s.cliente.telefono ?? s.cliente.correo}</span>
+              </td>
+              <td className="px-4 py-4">
+                <span className="block text-navy">{s.servicio}</span>
+                <span className="block max-w-[16rem] truncate text-xs text-slate" title={s.direccion}>
+                  {s.direccion}
+                </span>
+              </td>
+              <td className="whitespace-nowrap px-4 py-4 text-navy">{formatearFechaYHora(s.fechaProgramada)}</td>
+              <td className="px-4 py-4 text-slate">{ETIQUETA_DE_MODO[s.modo]}</td>
+              <td className="px-4 py-4">
+                <Colaborador s={s} />
+              </td>
+              <td className="space-y-1.5 px-5 py-4">
+                <InsigniaDeEstadoDeSolicitud estado={s.estado} />
+                <InsigniasDeAlerta alertas={s.alertas} />
+              </td>
             </tr>
-          </thead>
-
-          <tbody className="divide-y divide-mist/70">
-            {solicitudes.map((solicitud) => {
-              const etapa = obtenerEtapaListado(solicitud);
-
-              return (
-                <tr key={solicitud.id} className="transition hover:bg-sky/25">
-                  <td
-                    className={`border-l-4 px-6 py-4 ${COLOR_DEL_BORDE_POR_ETAPA[etapa]}`}
-                  >
-                    <span className="rounded-full bg-navy px-3 py-1 text-xs font-bold text-white">
-                      {solicitud.id}
-                    </span>
-                  </td>
-
-                  <td className="px-4 py-4">
-                    <DatosDelCliente solicitud={solicitud} />
-                  </td>
-
-                  <td className="px-4 py-4">{solicitud.servicio}</td>
-
-                  <td className="whitespace-nowrap px-4 py-4 font-bold text-navy">
-                    {describirHorario(solicitud.fechaProgramada, claveDeHoy)}
-                  </td>
-
-                  <td className="hidden whitespace-nowrap px-4 py-4 text-slate xl:table-cell">
-                    {describirTiempoDesdeCreacion(
-                      solicitud.fechaCreacion,
-                      ahora,
-                    )}
-                  </td>
-
-                  <td className="hidden px-4 py-4 lg:table-cell">
-                    <NombreDelTrabajadorAsignado solicitud={solicitud} />
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <InsigniaDeSeguimiento etapa={etapa} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <ul className="space-y-4 md:hidden">
-        {solicitudes.map((solicitud) => {
-          const etapa = obtenerEtapaListado(solicitud);
-
-          return (
-            <li key={solicitud.id}>
-              <article
-                className={`surface leaf-sm border-l-4 p-5 ${COLOR_DEL_BORDE_POR_ETAPA[etapa]}`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="rounded-full bg-navy px-3 py-1 text-xs font-bold text-white">
-                    {solicitud.id}
-                  </span>
-
-                  <InsigniaDeSeguimiento etapa={etapa} />
-                </div>
-
-                <div className="mt-3">
-                  <DatosDelCliente solicitud={solicitud} />
-                </div>
-
-                <p className="mt-1 text-sm text-slate">{solicitud.servicio}</p>
-
-                <p className="mt-3 text-sm font-bold text-navy">
-                  {describirHorario(solicitud.fechaProgramada, claveDeHoy)}
-                </p>
-
-                <p className="mt-1 text-xs text-slate">
-                  Solicitada{" "}
-                  {describirTiempoDesdeCreacion(
-                    solicitud.fechaCreacion,
-                    ahora,
-                  )}
-                </p>
-
-                <p className="mt-1 text-xs text-slate">
-                  Colaborador:{" "}
-                  <NombreDelTrabajadorAsignado solicitud={solicitud} />
-                </p>
-              </article>
-            </li>
-          );
-        })}
-      </ul>
-    </>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
