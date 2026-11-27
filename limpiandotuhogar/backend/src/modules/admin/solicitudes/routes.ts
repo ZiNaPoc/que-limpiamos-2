@@ -10,16 +10,6 @@ import { leerCuerpo } from "../../../shared/validation/campos";
 import { adminActual, requireAdmin } from "../auth/guard";
 import { requierePermiso } from "../moderacion/routes";
 
-/**
- * Supervisión de solicitudes — audiencia ADMIN (doc 25 v2 §5 y §7.2).
- *   GET  /api/admin/solicitudes                          SUPERVISAR_SOLICITUDES (o propietario)
- *        ?estado=&modo=INVITACION|BOLSA&desde=&hasta=&q=&atencion=1&pagina=&tamano=
- *   GET  /api/admin/solicitudes/:id                      SUPERVISAR_SOLICITUDES (o propietario)
- *   GET  /api/admin/solicitudes/:id/evidencias/:evidenciaId   ídem; fotos de reportes: + incidencias
- *   POST /api/admin/solicitudes/:id/resolucion           GESTIONAR_INCIDENCIAS_FINANZAS
- *        { resultadoServicio: REALIZADO|NO_REALIZADO, motivo }   inmutable; la segunda → 409
- * NO existen rutas para asignar, reasignar, confirmar, finalizar ni cancelar (D24).
- */
 export const solicitudesAdminRouter = Router();
 
 /** Ver solicitudes: SUPERVISAR_SOLICITUDES vigente o el propietario (implícito). */

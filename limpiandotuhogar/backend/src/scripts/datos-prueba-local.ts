@@ -1,17 +1,4 @@
-/**
- * Datos de PRUEBA para usar las apps en un teléfono contra el backend local (doc 24).
- *   npm run datos:local                          siembra (idempotente: solo crea lo que falta)
- *   npm run datos:local -- --restablecer-claves  nuevas contraseñas para las cuentas de prueba locales
- *   npm run datos:local -- --restablecer-claves=trabajador   solo para esa(s) clave(s) del archivo de cuentas
- *
- * Destino: SOLO quelimpiamos_dev en el TiDB LOCAL (127.0.0.1:4000); se comprueba antes de escribir.
- * No borra nada, no toca otras cuentas, no crea ni migra el esquema y no crea solicitudes.
- * Doc 25 v2 (autorizado el 2026-11-25): además marca al cliente ficticio como VERIFICADO (D65, solo esa
- * cuenta) y crea, si faltan, 4 cuentas de prueba LOCALES: el propietario de prueba (con el correo que
- * indicó el usuario, D63a; asignación inicial auditada), 2 admins ficticios y un 2.º trabajador ficticio.
- * Las contraseñas se guardan en backend/.local/cuentas-prueba-local.json (ignorado por git).
- */
-// Primero el entorno: fija la BD local antes de cargar la configuración.
+
 import { DESTINO, DIRECTORIO_LOCAL } from "./lib/entorno-datos";
 
 import { randomBytes } from "node:crypto";
@@ -23,15 +10,15 @@ import { asignacionInicialPropietario } from "../dominio/permisos";
 import { hashPassword } from "../shared/auth/password";
 import { verificarDestinoLocal, verificarDestinoNube } from "./lib/destino-local";
 
-// Cada destino tiene su propio archivo de credenciales (ignorados por git).
+
 const ARCHIVO_CUENTAS = path.join(DIRECTORIO_LOCAL, DESTINO === "nube" ? "cuentas-demo-nube.json" : "cuentas-prueba-local.json");
 const ARCHIVO_CUENTAS_LOCAL = path.join(DIRECTORIO_LOCAL, "cuentas-prueba-local.json");
-// --restablecer-claves: todas las cuentas de prueba; --restablecer-claves=trabajador,admin1: solo esas claves.
+
 const ARG_RESTABLECER = process.argv.find((a) => a === "--restablecer-claves" || a.startsWith("--restablecer-claves="));
 const SOLO_RESTABLECER = ARG_RESTABLECER?.includes("=") ? new Set(ARG_RESTABLECER.split("=")[1]!.split(",")) : null;
 const restablecer = (clave: string) => ARG_RESTABLECER !== undefined && (SOLO_RESTABLECER === null || SOLO_RESTABLECER.has(clave));
 
-/** Catálogo de PRUEBA: los 3 servicios que muestra la app del cliente (mismos nombres, textos y precios). */
+
 const ESPECIALIDADES = [
   { nombre: "Limpieza general", descripcion: "Barrer, trapear, aspirar y sacudir" },
   { nombre: "Limpieza profunda", descripcion: "Zonas de difícil acceso y desinfección" },
@@ -42,7 +29,7 @@ const SERVICIOS = [
   { nombre: "Limpieza profunda", descripcion: "Limpieza detallada de todas las áreas del espacio, incluyendo zonas de difícil acceso.", precio: "600.00", minutos: 300, especialidades: ["Limpieza general", "Limpieza profunda"] },
   { nombre: "Limpieza post-obra", descripcion: "Limpieza después de una remodelación o construcción.", precio: "650.00", minutos: 360, especialidades: ["Limpieza post-obra"] },
 ];
-/** Áreas y extras de la app: el esquema 002 ya los inserta; aquí solo se completan si faltaran. */
+
 const AREAS = ["Cocina", "Sala", "Recámaras", "Baños", "Patio", "Áreas comunes"];
 const EXTRAS = [
   { nombre: "Limpieza de ventanas", precio: "300.00" },
@@ -52,13 +39,10 @@ const EXTRAS = [
   { nombre: "Limpieza de cajonera", precio: "150.00" },
 ];
 
-/** Cuentas FICTICIAS (dominio .test, que no existe en Internet). */
+
 const CLIENTE = { correo: "cliente.prueba@quelimpiamos.test", nombre: "Cliente de Prueba", telefono: "9990003333" };
 const TRABAJADOR = { correo: "trabajador.prueba@quelimpiamos.test", nombre: "Trabajador de Prueba", telefono: "9990004444", direccion: "Calle Ficticia 123, Cancún (dato de prueba)" };
 
-/** Doc 25 v2: cuentas de prueba LOCALES adicionales (los permisos de los admins se otorgan después, por el backend). */
-// El correo del propietario (D63a) NO se escribe en el código: sale de PROPIETARIO_CORREO o del archivo
-// local de cuentas (backend/.local, ignorado por git).
 const PROPIETARIO = { correo: "", nombre: "Propietario (prueba local)" };
 const ADMINS = [
   { clave: "admin1", correo: "admin1.prueba@quelimpiamos.test", nombre: "Admin Uno de Prueba" },
@@ -77,7 +61,7 @@ async function main() {
   const existian: string[] = [];
   const anotar = (nuevo: boolean, que: string) => (nuevo ? creados : existian).push(que);
 
-  // 1. Especialidades y servicios (solo si faltan; los existentes no se cambian).
+
   const especialidad = new Map<string, number>();
   for (const e of ESPECIALIDADES) {
     const previa = await prisma.especialidades.findUnique({ where: { nombre: e.nombre } });
@@ -102,7 +86,6 @@ async function main() {
     }
   }
 
-  // 2. Áreas y extras (el esquema ya los trae: solo se completan los que falten).
   for (const [i, nombre] of AREAS.entries()) {
     const previa = await prisma.areas_limpieza.findUnique({ where: { nombre } });
     if (!previa) await prisma.areas_limpieza.create({ data: { nombre, orden: i + 1 } });
@@ -114,8 +97,6 @@ async function main() {
     anotar(!previo, `extra "${x.nombre}"`);
   }
 
-  // 3. Cuentas ficticias. La contraseña solo se fija al CREAR la cuenta (o con --restablecer-claves):
-  //    volver a ejecutar el script no invalida las sesiones abiertas en el teléfono.
   const archivo: Cuentas = existsSync(ARCHIVO_CUENTAS)
     ? JSON.parse(readFileSync(ARCHIVO_CUENTAS, "utf8")).cuentas
     : { cliente: { correo: CLIENTE.correo }, trabajador: { correo: TRABAJADOR.correo } };
@@ -163,10 +144,8 @@ async function main() {
     await prisma.trabajador_servicios.upsert({ where: { trabajador_id_servicio_id: clave }, create: clave, update: {} });
   }
 
-  // 3b. Doc 25 v2. Cliente ficticio con la INE "aprobada" (D65): SOLO esta cuenta, para poder crear solicitudes.
   await prisma.usuarios.update({ where: { correo: CLIENTE.correo }, data: { estado_verificacion: "VERIFICADO" } });
 
-  // 2.º trabajador ficticio, activo y verificado, con las mismas especialidades (bolsa y rechazos).
   let trabajador2 = await prisma.trabajadores.findUnique({ where: { correo: TRABAJADOR2.correo } });
   if (!trabajador2 || restablecer("trabajador2") || !archivo.trabajador2?.password) {
     if (trabajador2 && !restablecer("trabajador2")) console.warn(`  ⚠ ${TRABAJADOR2.correo} ya existe y su contraseña no está en ${ARCHIVO_CUENTAS}: usa --restablecer-claves.`);
@@ -187,8 +166,7 @@ async function main() {
     await prisma.trabajador_especialidades.upsert({ where: { trabajador_id_especialidad_id: clave }, create: clave, update: {} });
   }
 
-  // Admins: el propietario de prueba (correo de D63a) y 2 ficticios. Sin permisos aquí, salvo la
-  // ASIGNACIÓN INICIAL auditada del propietario (ADMINISTRAR_PERMISOS + MODERAR_CONTENIDO, plantilla 003 v2).
+
   const deLocal = existsSync(ARCHIVO_CUENTAS_LOCAL) ? (JSON.parse(readFileSync(ARCHIVO_CUENTAS_LOCAL, "utf8")).cuentas as Cuentas).propietario?.correo : undefined;
   PROPIETARIO.correo = (process.env.PROPIETARIO_CORREO ?? archivo.propietario?.correo ?? deLocal ?? "").trim().toLowerCase();
   if (!PROPIETARIO.correo) throw new Error("Indica el correo del propietario con PROPIETARIO_CORREO (no se guarda en el código)");

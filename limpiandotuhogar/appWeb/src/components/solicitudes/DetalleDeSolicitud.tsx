@@ -127,9 +127,6 @@ export function DetalleDeSolicitud({ idSolicitud, onVolver, onNavegar }: Detalle
           No se pudo actualizar: {error}. Se muestran los últimos datos cargados.
         </p>
       )}
-      <p className="rounded-2xl bg-sky/40 p-4 text-sm text-storm">
-        El panel solo supervisa: la administración no asigna, reasigna, confirma, finaliza ni cancela solicitudes. Si hay un reporte, se resuelve abajo.
-      </p>
 
       <div className="grid gap-6 md:grid-cols-2">
         <Tarjeta titulo="Cliente">

@@ -19,17 +19,6 @@ import { idDeRuta } from "../../../shared/http/parametros";
 import { leerCuerpo } from "../../../shared/validation/campos";
 import { adminActual, requireAdmin } from "../auth/guard";
 
-/**
- * Panel con datos reales (doc 27).
- *   GET   /api/admin/resumen                       cualquier admin (D24: ve el dashboard); solo conteos
- *   GET   /api/admin/clientes?q=&verificacion=     SUPERVISAR_SOLICITUDES o propietario (datos personales)
- *   GET   /api/admin/trabajadores?q=               ídem
- *   GET   /api/admin/catalogo                      cualquier admin (D24: administra el catálogo)
- *   POST  /api/admin/catalogo/servicios · PATCH /api/admin/catalogo/servicios/:id
- *   POST  /api/admin/catalogo/extras    · PATCH /api/admin/catalogo/extras/:id
- *   POST  /api/admin/catalogo/areas     · PATCH /api/admin/catalogo/areas/:id
- * El catálogo no se borra (se desactiva): las solicitudes guardan su copia de nombres y precios.
- */
 export const plataformaRouter = Router();
 
 const requiereSupervision: RequestHandler = async (_req, res, next) => {

@@ -4,17 +4,6 @@ import { cicloParaCliente, cicloParaTrabajador, filtrarElegibles } from "./ciclo
 import { relojDominio } from "./reloj";
 import { PLAZO_HORAS, reputacionesDeTrabajadores } from "./resenas";
 
-/**
- * Consultas de SOLO LECTURA para las apps (Fase 3b, doc 23 §2, autorizadas el 2026-11-25).
- * Dan a las apps el id REAL de cada solicitud para calificar y reportar desde el servicio.
- * La identidad sale del token; un usuario solo ve SUS solicitudes. No se expone el correo ni
- * el teléfono de la otra parte, ni las reseñas que el usuario RECIBIÓ (V5/V6).
- *
- * Doc 25 v2 (ciclo sin dinero): cada elemento AÑADE los datos del ciclo (modo, snapshot del inmueble,
- * invitaciones, marcas de D54, fotos de «terminado» y las acciones permitidas). Los campos de la
- * Fase 3b se conservan con el mismo nombre y significado.
- */
-
 const PLAZO_MS = PLAZO_HORAS * 3600_000;
 const ESTADOS_INVITACION_VIGENTE = ["PENDIENTE", "ACEPTADA"] as const;
 
@@ -49,7 +38,6 @@ const CAMPOS = {
   servicios: { select: { nombre: true } },
 } as const;
 
-/** GET /api/cliente/solicitudes — las solicitudes del cliente, de la más reciente a la más antigua. */
 export async function solicitudesDelCliente(clienteId: number) {
   const filas = await prisma.solicitudes.findMany({ where: { cliente_id: clienteId }, select: CAMPOS, orderBy: { fecha_hora_programada: "desc" }, take: 200 });
   const ids = filas.map((s) => s.id);
@@ -81,21 +69,22 @@ export async function solicitudesDelCliente(clienteId: number) {
   });
 }
 
-/**
- * GET /api/trabajador/solicitudes — las solicitudes ASIGNADAS al trabajador y aquellas a las que
- * está INVITADO con invitación vigente (PENDIENTE o ACEPTADA).
- */
+
 export async function solicitudesDelTrabajador(trabajadorId: number) {
   const invitaciones = await prisma.solicitud_trabajadores.findMany({
     where: { trabajador_id: trabajadorId, estado: { in: [...ESTADOS_INVITACION_VIGENTE] } },
     select: { solicitud_id: true, estado: true },
   });
+
+  //CONSULTA TODAS LAS SOLICITUDES
   const filas = await prisma.solicitudes.findMany({
     where: { OR: [{ trabajador_id: trabajadorId }, { id: { in: invitaciones.map((i) => i.solicitud_id) } }] },
     select: CAMPOS,
     orderBy: { fecha_hora_programada: "desc" },
     take: 200,
   });
+
+  
   const [resenas, clientes] = await Promise.all([
     prisma.resenas.findMany({ where: { solicitud_id: { in: filas.map((s) => s.id) }, autor_rol: "TRABAJADOR", trabajador_id: trabajadorId }, select: { solicitud_id: true, puntuacion: true, comentario: true, created_at: true, eliminada_en: true } }),
     prisma.usuarios.findMany({ where: { id: { in: filas.map((s) => s.cliente_id) } }, select: { id: true, nombre_completo: true } }),
@@ -128,12 +117,6 @@ export async function solicitudesDelTrabajador(trabajadorId: number) {
   });
 }
 
-/**
- * GET /api/cliente/trabajadores — selección manual (decisión del 2026-11-25): solo trabajadores
- * ACTIVOS y VERIFICADOS. Con `servicioId`, solo los que tienen TODAS las especialidades que exige
- * ese servicio (servicio_especialidades). Con la fecha, además sin traslapes (doc 25); al crear la
- * solicitud se vuelve a validar todo.
- */
 export async function trabajadoresParaSeleccion(servicioId?: number, fecha?: Date) {
   let exigidas: number[] = [];
   let duracionMin = 0;

@@ -1,21 +1,4 @@
-/**
- * Solicitudes FICTICIAS para probar la Fase 3b en el teléfono (doc 24 §6). La creación real de
- * solicitudes aún no existe (las apps usan rutas obsoletas).
- *   npm run solicitudes:local     idempotente: crea solo las que falten, nunca duplica
- *
- * Destino: SOLO quelimpiamos_dev en el TiDB LOCAL; se verifica host, puerto y nombre antes de escribir.
- * Requiere antes `npm run datos:local` (servicios y las 2 cuentas ficticias).
- *
- *  S1  REALIZADO hace ~1 día, sin reseñas       → califican el cliente y el trabajador; ambos reportan
- *  S2  REALIZADO hace ~2 días, con la reseña del CLIENTE → el cliente ya no califica; el trabajador sí
- *  S3  CONFIRMADO, hora programada recién pasada, sin iniciar → ambos reportan (con fotos desde la app)
- *
- * Cada solicitud se marca en `notas` con "[prueba-telefono:S1|S2|S3]"; así el script las reconoce y no
- * las duplica. Con REALIZADO se usa realizado_via = AUTOMATICO (D54): nadie confirmó y el pago NO se
- * libera, así que no corresponde ningún movimiento. No crea pagos, adeudos, movimientos,
- * notificaciones, reportes ni fotos, y no modifica registros que ya existían.
- */
-// Primero el entorno: fija la BD local antes de cargar la configuración.
+
 import "./lib/entorno-servidor-local";
 
 import { Prisma } from "../../generated/prisma/client";
@@ -140,7 +123,6 @@ async function main() {
       console.log(`${plan.clave}: ya existía (solicitud ${solicitud.id}); no se toca.`);
     }
 
-    // S2: la reseña del CLIENTE, con las reglas reales (crearResena). Solo si aún no existe.
     if (plan.clave === "S2") {
       const previa = await prisma.resenas.findFirst({ where: { solicitud_id: solicitud.id, autor_rol: "CLIENTE" } });
       if (previa) console.log(`S2: la reseña del cliente ya existía (reseña ${previa.id}); no se toca.`);
@@ -151,7 +133,7 @@ async function main() {
     }
   }
 
-  // Resumen, con los mismos criterios que el historial de las apps.
+
   console.log("\nResumen:");
   for (const plan of PLANES) {
     const s = await prisma.solicitudes.findFirstOrThrow({ where: { cliente_id: cliente.id, notas: { startsWith: marca(plan.clave) } } });
